@@ -166,39 +166,98 @@ class Grid:
         lines.append("y")
         return "\n".join(lines)
 
-    def display_pretty(self) -> str:
-        """Display with colored filled blocks and a legend below."""
-        # ANSI background colors
-        BG_COLORS = [
-            "\033[41m",   # red
-            "\033[42m",   # green
-            "\033[43m",   # yellow
-            "\033[44m",   # blue
-            "\033[45m",   # magenta
-            "\033[46m",   # cyan
-            "\033[101m",  # bright red
-            "\033[102m",  # bright green
-            "\033[103m",  # bright yellow
-            "\033[104m",  # bright blue
-            "\033[105m",  # bright magenta
-            "\033[106m",  # bright cyan
-            "\033[47m",   # white
-            "\033[100m",  # bright black (gray)
-        ]
+    def display_pretty(self, colorblind: bool = False) -> str:
+        """Display with colored blocks. Each shape type gets a unique color.
+        Same-type pieces that are adjacent get light/dark variants to differentiate."""
+        if colorblind:
+            # Colorblind-safe palette: pairs of (base, variant) per shape type
+            BASE_COLORS = [
+                ("\033[48;5;24m", "\033[48;5;31m"),    # dark blue / lighter blue
+                ("\033[48;5;166m", "\033[48;5;172m"),   # orange / lighter orange
+                ("\033[48;5;72m", "\033[48;5;79m"),     # teal / lighter teal
+                ("\033[48;5;132m", "\033[48;5;139m"),   # purple / lighter purple
+                ("\033[48;5;136m", "\033[48;5;179m"),   # gold / lighter gold
+                ("\033[48;5;30m", "\033[48;5;37m"),     # dark cyan / lighter cyan
+                ("\033[48;5;174m", "\033[48;5;181m"),   # pink / lighter pink
+                ("\033[48;5;67m", "\033[48;5;110m"),    # steel / lighter steel
+                ("\033[48;5;107m", "\033[48;5;150m"),   # olive / lighter olive
+                ("\033[48;5;95m", "\033[48;5;138m"),    # dusty rose / lighter
+                ("\033[48;5;60m", "\033[48;5;103m"),    # slate / lighter slate
+                ("\033[48;5;203m", "\033[48;5;210m"),   # coral / lighter coral
+                ("\033[48;5;37m", "\033[48;5;44m"),     # medium cyan / lighter
+                ("\033[48;5;180m", "\033[48;5;223m"),   # tan / lighter tan
+            ]
+        else:
+            # Soft professional palette: pairs of (base, variant) per shape type
+            BASE_COLORS = [
+                ("\033[48;5;67m", "\033[48;5;110m"),    # steel blue / powder blue
+                ("\033[48;5;174m", "\033[48;5;217m"),   # dusty rose / light pink
+                ("\033[48;5;108m", "\033[48;5;151m"),   # sage green / mint
+                ("\033[48;5;137m", "\033[48;5;180m"),   # camel / sand
+                ("\033[48;5;96m", "\033[48;5;139m"),    # mauve / light mauve
+                ("\033[48;5;73m", "\033[48;5;116m"),    # soft teal / light teal
+                ("\033[48;5;131m", "\033[48;5;173m"),   # terracotta / peach
+                ("\033[48;5;60m", "\033[48;5;103m"),    # charcoal blue / lavender gray
+                ("\033[48;5;71m", "\033[48;5;114m"),    # fern green / light fern
+                ("\033[48;5;168m", "\033[48;5;211m"),   # soft pink / light pink
+                ("\033[48;5;143m", "\033[48;5;186m"),   # olive / light olive
+                ("\033[48;5;66m", "\033[48;5;109m"),    # slate blue / light slate
+                ("\033[48;5;95m", "\033[48;5;138m"),    # plum / warm gray
+                ("\033[48;5;179m", "\033[48;5;222m"),   # wheat / pale gold
+            ]
         RESET = "\033[0m"
 
         size = self.SIZE
 
-        # Map shape IDs to color indices
-        id_to_color = {}
-        for idx, (_, _, _, _, shape_id) in enumerate(self.placements):
-            id_to_color[shape_id] = idx % len(BG_COLORS)
+        # Assign each shape TYPE a base color index
+        name_to_color_idx = {}
+        color_counter = 0
+        for name, _, _, _, _ in self.placements:
+            if name not in name_to_color_idx:
+                name_to_color_idx[name] = color_counter % len(BASE_COLORS)
+                color_counter += 1
+
+        # Build adjacency between shape IDs
+        neighbors = {}
+        for x in range(size):
+            for y in range(size):
+                curr = self.cells[x][y]
+                if curr == 0:
+                    continue
+                if curr not in neighbors:
+                    neighbors[curr] = set()
+                for dx, dy in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
+                    nx, ny = x + dx, y + dy
+                    if 0 <= nx < size and 0 <= ny < size:
+                        adj = self.cells[nx][ny]
+                        if adj != 0 and adj != curr:
+                            neighbors[curr].add(adj)
+
+        # Assign variant (base=0, lighter=1) to same-type pieces that touch
+        id_to_variant = {}
+        id_to_name = {}
+        for name, _, _, _, shape_id in self.placements:
+            id_to_name[shape_id] = name
+            if shape_id not in neighbors:
+                neighbors[shape_id] = set()
+            # Check if any same-type neighbor already has variant 0
+            same_type_neighbor_variants = set()
+            for n_id in neighbors[shape_id]:
+                if n_id in id_to_name and id_to_name[n_id] == name and n_id in id_to_variant:
+                    same_type_neighbor_variants.add(id_to_variant[n_id])
+            # Pick variant that doesn't conflict with same-type neighbors
+            if 0 not in same_type_neighbor_variants:
+                id_to_variant[shape_id] = 0
+            else:
+                id_to_variant[shape_id] = 1
 
         def colored_cell(shape_id):
             if shape_id == 0:
                 return "  "
-            color_idx = id_to_color[shape_id]
-            bg = BG_COLORS[color_idx]
+            name = id_to_name[shape_id]
+            color_idx = name_to_color_idx[name]
+            variant = id_to_variant.get(shape_id, 0)
+            bg = BASE_COLORS[color_idx][variant]
             return f"{bg}  {RESET}"
 
         lines = []
@@ -218,15 +277,11 @@ class Grid:
 
         lines.append("")
 
-        # Legend
+        # Legend — one entry per shape type, showing base color
         lines.append("   Legend:")
-        seen = {}
-        for name, _, _, _, shape_id in self.placements:
-            if name not in seen:
-                color_idx = id_to_color[shape_id]
-                seen[name] = color_idx
-        for name, color_idx in seen.items():
-            bg = BG_COLORS[color_idx]
+        for name in name_to_color_idx:
+            color_idx = name_to_color_idx[name]
+            bg = BASE_COLORS[color_idx][0]
             lines.append(f"   {bg}  {RESET} = {name}")
 
         return "\n".join(lines)
@@ -343,21 +398,26 @@ def greedy_place(grid: Grid, shapes_to_place: List[Tuple[str, List[Shape]]]) -> 
     return grid
 
 
-def pack_shapes(shape_list: List[str], strategy: str = "greedy", timeout: float = 120) -> Grid:
+def pack_shapes(shape_list: List[str], strategy: str = "greedy", timeout: float = 60) -> Grid:
     """
     Main entry point. Takes a list of shape names and packs them into a 9x9 grid.
     Each shape will be tried in all valid rotations.
+    Jewels are placed last, backfilling any remaining empty cells.
 
     Args:
         shape_list: List of shape names (keys from SHAPES dict).
         strategy: "greedy" for fast heuristic, "backtrack" for optimal search.
-        timeout: Max seconds for backtracking solver (default 120).
+        timeout: Max seconds for backtracking solver (default 60).
 
     Returns:
         The resulting Grid with shapes placed.
     """
+    # Separate jewels from other shapes
+    jewels = [name for name in shape_list if name == "jewel"]
+    other_shapes = [name for name in shape_list if name != "jewel"]
+
     shapes_to_place = []
-    for name in shape_list:
+    for name in other_shapes:
         if name not in SHAPES:
             raise ValueError(f"Unknown shape: '{name}'. Available: {sorted(SHAPES.keys())}")
         shapes_to_place.append((name, SHAPE_ROTATIONS[name]))
@@ -372,17 +432,27 @@ def pack_shapes(shape_list: List[str], strategy: str = "greedy", timeout: float 
         shapes_to_place.sort(key=lambda x: len(x[1][0]), reverse=True)
         solved = solve(grid, shapes_to_place, best, best_grid, calls,
                        max_attempts=2_000_000, timeout=timeout, start_time=time.time())
-        if solved:
-            return grid
-        # Return best partial solution found
-        if calls[0] > 2_000_000:
-            print(f"\r  Max attempts (2,000,000) reached. Best: {best[0]} cells filled.                ")
-        elif not solved and calls[0] <= 5_000_000:
-            elapsed = time.time()
-            print(f"\r  Exhausted search after {calls[0]:,} attempts. Best: {best[0]} cells filled.     ")
-        return best_grid[0] if best_grid[0] else grid
+        if not solved:
+            if calls[0] > 2_000_000:
+                print(f"\r  Max attempts (2,000,000) reached. Best: {best[0]} cells filled.                ")
+            else:
+                print(f"\r  Exhausted search after {calls[0]:,} attempts. Best: {best[0]} cells filled.     ")
+            grid = best_grid[0] if best_grid[0] else grid
     else:
-        return greedy_place(grid, shapes_to_place)
+        greedy_place(grid, shapes_to_place)
+
+    # Backfill empty cells with jewels
+    if jewels:
+        jewel_shape = SHAPE_ROTATIONS["jewel"][0]
+        for y in range(Grid.SIZE):
+            for x in range(Grid.SIZE):
+                if not jewels:
+                    break
+                if grid.cells[x][y] == 0:
+                    grid.place(jewel_shape, x, y, "jewel", 0)
+                    jewels.pop()
+
+    return grid
 
 
 # --- CLI ---
@@ -417,17 +487,24 @@ if __name__ == "__main__":
                 print("Error: --timeout requires a value (seconds)")
                 sys.exit(1)
 
+        colorblind = False
+        if "--colorblind" in args:
+            args.remove("--colorblind")
+            colorblind = True
+
         if "--help" in args or "-h" in args:
-            print("Usage: python3 ark_ranger.py [--backtrack] [--timeout SECONDS] shape1[:qty] shape2[:qty] ...")
+            print("Usage: python3 ark_ranger.py [--backtrack] [--timeout SECONDS] [--colorblind] shape1[:qty] shape2[:qty] ...")
             print(f"\nAvailable shapes: {', '.join(sorted(SHAPES.keys()))}")
             print("\nExamples:")
             print("  python3 ark_ranger.py shotgun:3 dual_pistols:2 buffs square:4")
             print("  python3 ark_ranger.py --backtrack blade:2 machine:3 fire corner:5")
             print("  python3 ark_ranger.py --backtrack --timeout 60 blade:2 machine:3")
+            print("  python3 ark_ranger.py --colorblind shotgun:3 square:4")
             print("\nFlags:")
             print("  --backtrack       Use exhaustive backtracking solver (slower, optimal)")
             print("                    Default is greedy (fast, may not be optimal)")
             print("  --timeout SECS    Max seconds for backtracking (default: 60)")
+            print("  --colorblind      Use colorblind-friendly palette")
             sys.exit(0)
 
         # Validate shape names
@@ -470,7 +547,7 @@ if __name__ == "__main__":
         print(f"Packing {len(shape_list)} shapes ({total_cells} cells) using {strategy} strategy...\n")
 
         result = pack_shapes(shape_list, strategy=strategy, timeout=timeout)
-        print(result.display_pretty())
+        print(result.display_pretty(colorblind=colorblind))
         print(f"\nCells filled: {result.cells_filled()} / 81")
         print(f"Pieces placed: {len(result.placements)} / {len(shape_list)}")
 
