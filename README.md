@@ -1,0 +1,54 @@
+# Ark Ranger Minigame Packer
+
+A script that optimally arranges Tetris-style shapes into a 9x9 grid. Designed for the Ark Ranger minigame puzzle.
+
+## Usage
+
+```bash
+python3 ark_ranger.py [--backtrack] shape1[:qty] shape2[:qty] ...
+```
+
+### Examples
+
+```bash
+# Pack 3 shotguns, 2 dual_pistols, 1 buffs, and 4 2x2 blocks
+python3 ark_ranger.py shotgun:3 dual_pistols:2 buffs "2x2:4"
+
+# Use the backtracking solver for an optimal solution
+python3 ark_ranger.py --backtrack blade:2 machine:3 fire corner:5
+
+# Single shape (quantity defaults to 1)
+python3 ark_ranger.py blade shotgun corner
+```
+
+### Flags
+
+- `--backtrack` — Use exhaustive backtracking solver. Slower but finds valid arrangements that greedy might miss.
+- Default (no flag) — Uses a greedy heuristic. Fast but may not find a solution even if one exists.
+
+## Available Shapes
+
+| Name | Cells |
+|------|-------|
+| jewel | 1 |
+| data_chip | 2 |
+| buffs | 3 |
+| corner | 3 |
+| 2x2 | 4 |
+| dual_pistols | 4 |
+| launcher | 4 |
+| photon | 4 |
+| shotgun | 4 |
+| blade | 5 |
+| bowgun | 5 |
+| fire | 5 |
+| machine | 5 |
+| rifle_laser | 5 |
+
+## Notes
+
+- Shapes are automatically rotated (0°, 90°, 180°, 270°) to find the best fit.
+- The grid is 9x9 (81 cells max). The script will error if your shapes exceed this.
+- If not all pieces fit, the output shows which shapes were unplaced.
+- The backtracking solver shows live progress while searching.
+- Shape names with special characters (like `2x2`) should be quoted on the command line.
