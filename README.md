@@ -5,7 +5,7 @@ A script that optimally arranges Tetris-style shapes into a 9x9 grid. Designed f
 ## Usage
 
 ```bash
-python3 ark_ranger.py [--backtrack] [--timeout SECONDS] [--colorblind] shape1[:qty] shape2[:qty] ...
+python3 ark_ranger.py [--greedy] [--timeout SECONDS] [--colorblind] shape1[:qty] shape2[:qty] ...
 ```
 
 ### Examples
@@ -14,14 +14,14 @@ python3 ark_ranger.py [--backtrack] [--timeout SECONDS] [--colorblind] shape1[:q
 # Pack 3 shotguns, 2 dual_pistols, 1 buffs, and 4 squares
 python3 ark_ranger.py shotgun:3 dual_pistols:2 buffs square:4
 
-# Use the backtracking solver for an optimal solution
-python3 ark_ranger.py --backtrack blade:2 machine:3 fire corner:5
+# Use the greedy solver (fast but may miss solutions)
+python3 ark_ranger.py --greedy blade:2 machine:3 fire corner:5
 
-# Backtrack with a custom timeout of 30 seconds
-python3 ark_ranger.py --backtrack --timeout 30 blade:2 machine:3
+# Custom timeout of 30 seconds
+python3 ark_ranger.py --timeout 30 blade:2 machine:3
 
 # Colorblind-friendly mode
-python3 ark_ranger.py --colorblind --backtrack shotgun:3 square:4
+python3 ark_ranger.py --colorblind shotgun:3 square:4
 
 # Single shape (quantity defaults to 1)
 python3 ark_ranger.py blade shotgun corner
@@ -29,10 +29,10 @@ python3 ark_ranger.py blade shotgun corner
 
 ### Flags
 
-- `--backtrack` — Use exhaustive backtracking solver. Slower but finds valid arrangements that greedy might miss.
-- `--timeout SECONDS` — Max time for backtracking solver (default: 30 seconds). Also stops after 2,000,000 attempts.
+- `--greedy` — Use fast greedy heuristic. Quick but may not find a solution even if one exists.
+- `--timeout SECONDS` — Max time for backtracking solver (default: 30 seconds). Also stops after 7,000,000 attempts.
 - `--colorblind` — Use a colorblind-friendly palette.
-- Default (no flag) — Uses a greedy heuristic. Fast but may not find a solution even if one exists.
+- Default (no flag) — Uses backtracking solver. Thorough and finds valid arrangements.
 
 ## Available Shapes
 
@@ -67,4 +67,4 @@ python3 ark_ranger.py blade shotgun corner
 - The grid is 9x9 (81 cells max). The script will error if your shapes exceed this.
 - If not all pieces fit, the output shows which shapes were unplaced.
 - The backtracking solver shows live progress (attempts, time elapsed, best solution so far).
-- Backtracking stops after 30 seconds or 2,000,000 attempts (whichever comes first) and returns the best solution found.
+- Backtracking stops after 30 seconds or 7,000,000 attempts (whichever comes first) and returns the best solution found.

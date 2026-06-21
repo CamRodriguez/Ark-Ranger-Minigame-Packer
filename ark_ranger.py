@@ -316,7 +316,7 @@ def find_first_empty(grid: Grid) -> Optional[Coord]:
 
 def solve(grid: Grid, shapes_to_place: List[Tuple[str, List[Shape]]],
           best: List[int], best_grid: List[Optional['Grid']],
-          calls: List[int] = None, max_attempts: int = 2_000_000,
+          calls: List[int] = None, max_attempts: int = 7_000_000,
           timeout: float = 30, start_time: float = None) -> bool:
     """
     Backtracking solver with constraint propagation.
@@ -471,10 +471,10 @@ def pack_shapes(shape_list: List[str], strategy: str = "greedy", timeout: float 
         # Sort largest first for better pruning
         shapes_to_place.sort(key=lambda x: len(x[1][0]), reverse=True)
         solved = solve(grid, shapes_to_place, best, best_grid, calls,
-                       max_attempts=2_000_000, timeout=timeout, start_time=time.time())
+                       max_attempts=7_000_000, timeout=timeout, start_time=time.time())
         if not solved:
-            if calls[0] > 2_000_000:
-                print(f"\r  Max attempts (2,000,000) reached. Best: {best[0]} cells filled.                ")
+            if calls[0] > 7_000_000:
+                print(f"\r  Max attempts (7,000,000) reached. Best: {best[0]} cells filled.                ")
             else:
                 print(f"\r  Exhausted search after {calls[0]:,} attempts. Best: {best[0]} cells filled.     ")
             grid = best_grid[0] if best_grid[0] else grid
@@ -505,12 +505,12 @@ if __name__ == "__main__":
         # A shape without a quantity defaults to 1
         # Use --backtrack flag for optimal solver (default is greedy)
         args = sys.argv[1:]
-        strategy = "greedy"
+        strategy = "backtrack"
         timeout = 30  # default 30 seconds
 
-        if "--backtrack" in args:
-            args.remove("--backtrack")
-            strategy = "backtrack"
+        if "--greedy" in args:
+            args.remove("--greedy")
+            strategy = "greedy"
 
         # Parse --timeout flag
         if "--timeout" in args:
@@ -533,16 +533,16 @@ if __name__ == "__main__":
             colorblind = True
 
         if "--help" in args or "-h" in args:
-            print("Usage: python3 ark_ranger.py [--backtrack] [--timeout SECONDS] [--colorblind] shape1[:qty] shape2[:qty] ...")
+            print("Usage: python3 ark_ranger.py [--greedy] [--timeout SECONDS] [--colorblind] shape1[:qty] shape2[:qty] ...")
             print(f"\nAvailable shapes: {', '.join(sorted(SHAPES.keys()))}")
             print("\nExamples:")
             print("  python3 ark_ranger.py shotgun:3 dual_pistols:2 buffs square:4")
-            print("  python3 ark_ranger.py --backtrack blade:2 machine:3 fire corner:5")
-            print("  python3 ark_ranger.py --backtrack --timeout 30 blade:2 machine:3")
+            print("  python3 ark_ranger.py --greedy blade:2 machine:3 fire corner:5")
+            print("  python3 ark_ranger.py --timeout 30 blade:2 machine:3")
             print("  python3 ark_ranger.py --colorblind shotgun:3 square:4")
             print("\nFlags:")
-            print("  --backtrack       Use exhaustive backtracking solver (slower, optimal)")
-            print("                    Default is greedy (fast, may not be optimal)")
+            print("  --greedy          Use fast greedy heuristic (may not find optimal solution)")
+            print("                    Default is backtracking (thorough, finds valid arrangements)")
             print("  --timeout SECS    Max seconds for backtracking (default: 30)")
             print("  --colorblind      Use colorblind-friendly palette")
             sys.exit(0)
@@ -600,8 +600,8 @@ if __name__ == "__main__":
             for name in unplaced:
                 print(f"  - {name}")
     else:
-        print("Usage: python3 tetris_grid.py [--backtrack] shape1[:qty] shape2[:qty] ...")
+        print("Usage: python3 ark_ranger.py [--greedy] [--timeout SECONDS] [--colorblind] shape1[:qty] shape2[:qty] ...")
         print(f"\nAvailable shapes: {', '.join(sorted(SHAPES.keys()))}")
         print("\nExamples:")
         print("  python3 ark_ranger.py shotgun:3 dual_pistols:2 buffs square:4")
-        print("  python3 ark_ranger.py --backtrack blade:2 machine:3 fire corner:5")
+        print("  python3 ark_ranger.py --greedy blade:2 machine:3 fire corner:5")
