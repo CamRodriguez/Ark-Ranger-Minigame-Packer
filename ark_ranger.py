@@ -317,7 +317,7 @@ def find_first_empty(grid: Grid) -> Optional[Coord]:
 def solve(grid: Grid, shapes_to_place: List[Tuple[str, List[Shape]]],
           best: List[int], best_grid: List[Optional['Grid']],
           calls: List[int] = None, max_attempts: int = 2_000_000,
-          timeout: float = 60, start_time: float = None) -> bool:
+          timeout: float = 30, start_time: float = None) -> bool:
     """
     Backtracking solver with constraint propagation.
     
@@ -438,7 +438,7 @@ def greedy_place(grid: Grid, shapes_to_place: List[Tuple[str, List[Shape]]]) -> 
     return grid
 
 
-def pack_shapes(shape_list: List[str], strategy: str = "greedy", timeout: float = 60) -> Grid:
+def pack_shapes(shape_list: List[str], strategy: str = "greedy", timeout: float = 30) -> Grid:
     """
     Main entry point. Takes a list of shape names and packs them into a 9x9 grid.
     Each shape will be tried in all valid rotations.
@@ -447,7 +447,7 @@ def pack_shapes(shape_list: List[str], strategy: str = "greedy", timeout: float 
     Args:
         shape_list: List of shape names (keys from SHAPES dict).
         strategy: "greedy" for fast heuristic, "backtrack" for optimal search.
-        timeout: Max seconds for backtracking solver (default 60).
+        timeout: Max seconds for backtracking solver (default 30).
 
     Returns:
         The resulting Grid with shapes placed.
@@ -506,7 +506,7 @@ if __name__ == "__main__":
         # Use --backtrack flag for optimal solver (default is greedy)
         args = sys.argv[1:]
         strategy = "greedy"
-        timeout = 60  # default 60 seconds
+        timeout = 30  # default 30 seconds
 
         if "--backtrack" in args:
             args.remove("--backtrack")
@@ -538,12 +538,12 @@ if __name__ == "__main__":
             print("\nExamples:")
             print("  python3 ark_ranger.py shotgun:3 dual_pistols:2 buffs square:4")
             print("  python3 ark_ranger.py --backtrack blade:2 machine:3 fire corner:5")
-            print("  python3 ark_ranger.py --backtrack --timeout 60 blade:2 machine:3")
+            print("  python3 ark_ranger.py --backtrack --timeout 30 blade:2 machine:3")
             print("  python3 ark_ranger.py --colorblind shotgun:3 square:4")
             print("\nFlags:")
             print("  --backtrack       Use exhaustive backtracking solver (slower, optimal)")
             print("                    Default is greedy (fast, may not be optimal)")
-            print("  --timeout SECS    Max seconds for backtracking (default: 60)")
+            print("  --timeout SECS    Max seconds for backtracking (default: 30)")
             print("  --colorblind      Use colorblind-friendly palette")
             sys.exit(0)
 

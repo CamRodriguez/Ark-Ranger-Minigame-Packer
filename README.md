@@ -30,7 +30,7 @@ python3 ark_ranger.py blade shotgun corner
 ### Flags
 
 - `--backtrack` — Use exhaustive backtracking solver. Slower but finds valid arrangements that greedy might miss.
-- `--timeout SECONDS` — Max time for backtracking solver (default: 60 seconds). Also stops after 2,000,000 attempts.
+- `--timeout SECONDS` — Max time for backtracking solver (default: 30 seconds). Also stops after 2,000,000 attempts.
 - `--colorblind` — Use a colorblind-friendly palette.
 - Default (no flag) — Uses a greedy heuristic. Fast but may not find a solution even if one exists.
 
@@ -67,4 +67,4 @@ python3 ark_ranger.py blade shotgun corner
 - The grid is 9x9 (81 cells max). The script will error if your shapes exceed this.
 - If not all pieces fit, the output shows which shapes were unplaced.
 - The backtracking solver shows live progress (attempts, time elapsed, best solution so far).
-- Backtracking stops after 60 seconds or 2,000,000 attempts (whichever comes first) and returns the best solution found.
+- Backtracking stops after 30 seconds or 2,000,000 attempts (whichever comes first) and returns the best solution found.
