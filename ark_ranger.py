@@ -174,55 +174,54 @@ class Grid:
         return "\n".join(lines)
 
     def display_pretty(self, colorblind: bool = False) -> str:
-        """Display with colored blocks. Each shape type gets a unique color.
-        Same-type pieces that are adjacent get light/dark variants to differentiate."""
+        """Display with colored blocks. Each shape instance gets a unique color
+        ensuring adjacent pieces are always visually distinct."""
         if colorblind:
-            # Colorblind-safe palette: pairs of (base, variant) per shape type
-            BASE_COLORS = [
-                ("\033[48;5;24m", "\033[48;5;31m"),    # dark blue / lighter blue
-                ("\033[48;5;166m", "\033[48;5;172m"),   # orange / lighter orange
-                ("\033[48;5;72m", "\033[48;5;79m"),     # teal / lighter teal
-                ("\033[48;5;132m", "\033[48;5;139m"),   # purple / lighter purple
-                ("\033[48;5;136m", "\033[48;5;179m"),   # gold / lighter gold
-                ("\033[48;5;30m", "\033[48;5;37m"),     # dark cyan / lighter cyan
-                ("\033[48;5;174m", "\033[48;5;181m"),   # pink / lighter pink
-                ("\033[48;5;67m", "\033[48;5;110m"),    # steel / lighter steel
-                ("\033[48;5;107m", "\033[48;5;150m"),   # olive / lighter olive
-                ("\033[48;5;95m", "\033[48;5;138m"),    # dusty rose / lighter
-                ("\033[48;5;60m", "\033[48;5;103m"),    # slate / lighter slate
-                ("\033[48;5;203m", "\033[48;5;210m"),   # coral / lighter coral
-                ("\033[48;5;37m", "\033[48;5;44m"),     # medium cyan / lighter
-                ("\033[48;5;180m", "\033[48;5;223m"),   # tan / lighter tan
+            COLORS = [
+                "\033[48;5;24m",   # dark blue
+                "\033[48;5;166m",  # orange
+                "\033[48;5;72m",   # teal
+                "\033[48;5;132m",  # purple
+                "\033[48;5;136m",  # gold
+                "\033[48;5;30m",   # dark cyan
+                "\033[48;5;174m",  # pink
+                "\033[48;5;67m",   # steel
+                "\033[48;5;107m",  # olive
+                "\033[48;5;95m",   # dusty rose
+                "\033[48;5;37m",   # cyan
+                "\033[48;5;180m",  # tan
+                "\033[48;5;60m",   # slate
+                "\033[48;5;203m",  # coral
+                "\033[48;5;109m",  # light slate
+                "\033[48;5;173m",  # peach
             ]
         else:
-            # Soft professional palette: pairs of (base, variant) per shape type
-            BASE_COLORS = [
-                ("\033[48;5;67m", "\033[48;5;110m"),    # steel blue / powder blue
-                ("\033[48;5;174m", "\033[48;5;217m"),   # dusty rose / light pink
-                ("\033[48;5;108m", "\033[48;5;151m"),   # sage green / mint
-                ("\033[48;5;137m", "\033[48;5;180m"),   # camel / sand
-                ("\033[48;5;96m", "\033[48;5;139m"),    # mauve / light mauve
-                ("\033[48;5;73m", "\033[48;5;116m"),    # soft teal / light teal
-                ("\033[48;5;131m", "\033[48;5;173m"),   # terracotta / peach
-                ("\033[48;5;60m", "\033[48;5;103m"),    # charcoal blue / lavender gray
-                ("\033[48;5;71m", "\033[48;5;114m"),    # fern green / light fern
-                ("\033[48;5;168m", "\033[48;5;211m"),   # soft pink / light pink
-                ("\033[48;5;143m", "\033[48;5;186m"),   # olive / light olive
-                ("\033[48;5;66m", "\033[48;5;109m"),    # slate blue / light slate
-                ("\033[48;5;95m", "\033[48;5;138m"),    # plum / warm gray
-                ("\033[48;5;179m", "\033[48;5;222m"),   # wheat / pale gold
+            # Soft professional palette — ordered for maximum contrast between neighbors
+            COLORS = [
+                "\033[48;5;67m",   # steel blue
+                "\033[48;5;173m",  # peach
+                "\033[48;5;108m",  # sage green
+                "\033[48;5;96m",   # mauve
+                "\033[48;5;137m",  # camel
+                "\033[48;5;60m",   # charcoal blue
+                "\033[48;5;174m",  # dusty rose
+                "\033[48;5;71m",   # fern green
+                "\033[48;5;131m",  # terracotta
+                "\033[48;5;73m",   # soft teal
+                "\033[48;5;168m",  # soft pink
+                "\033[48;5;143m",  # olive
+                "\033[48;5;110m",  # powder blue
+                "\033[48;5;179m",  # wheat
+                "\033[48;5;95m",   # plum
+                "\033[48;5;151m",  # mint
+                "\033[48;5;138m",  # warm gray
+                "\033[48;5;66m",   # slate blue
+                "\033[48;5;180m",  # sand
+                "\033[48;5;103m",  # lavender gray
             ]
         RESET = "\033[0m"
 
         size = self.SIZE
-
-        # Assign each shape TYPE a base color index
-        name_to_color_idx = {}
-        color_counter = 0
-        for name, _, _, _, _ in self.placements:
-            if name not in name_to_color_idx:
-                name_to_color_idx[name] = color_counter % len(BASE_COLORS)
-                color_counter += 1
 
         # Build adjacency between shape IDs
         neighbors = {}
@@ -240,31 +239,43 @@ class Grid:
                         if adj != 0 and adj != curr:
                             neighbors[curr].add(adj)
 
-        # Assign variant (base=0, lighter=1) to same-type pieces that touch
-        id_to_variant = {}
+        # Assign a fixed base color per shape TYPE (for the legend)
+        name_to_base = {}
+        base_idx = 0
+        for name, _, _, _, _ in self.placements:
+            if name not in name_to_base:
+                name_to_base[name] = base_idx
+                base_idx += 1
+
+        # Graph coloring: assign colors to each piece, preferring its type's base color
+        # but shifting if a neighbor already has that color
+        id_to_color = {}
         id_to_name = {}
         for name, _, _, _, shape_id in self.placements:
             id_to_name[shape_id] = name
             if shape_id not in neighbors:
                 neighbors[shape_id] = set()
-            # Check if any same-type neighbor already has variant 0
-            same_type_neighbor_variants = set()
-            for n_id in neighbors[shape_id]:
-                if n_id in id_to_name and id_to_name[n_id] == name and n_id in id_to_variant:
-                    same_type_neighbor_variants.add(id_to_variant[n_id])
-            # Pick variant that doesn't conflict with same-type neighbors
-            if 0 not in same_type_neighbor_variants:
-                id_to_variant[shape_id] = 0
+            used_colors = {id_to_color[n] for n in neighbors[shape_id] if n in id_to_color}
+
+            # Try the base color for this type first
+            preferred = name_to_base[name]
+            if preferred not in used_colors:
+                id_to_color[shape_id] = preferred
             else:
-                id_to_variant[shape_id] = 1
+                # Find the nearest available color
+                for offset in range(1, len(COLORS)):
+                    candidate = (preferred + offset) % len(COLORS)
+                    if candidate not in used_colors:
+                        id_to_color[shape_id] = candidate
+                        break
+                else:
+                    id_to_color[shape_id] = preferred  # fallback
 
         def colored_cell(shape_id):
             if shape_id == 0:
                 return "  "
-            name = id_to_name[shape_id]
-            color_idx = name_to_color_idx[name]
-            variant = id_to_variant.get(shape_id, 0)
-            bg = BASE_COLORS[color_idx][variant]
+            color_idx = id_to_color[shape_id]
+            bg = COLORS[color_idx % len(COLORS)]
             return f"{bg}  {RESET}"
 
         lines = []
@@ -284,11 +295,11 @@ class Grid:
 
         lines.append("")
 
-        # Legend — one entry per shape type, showing base color
+        # Legend — one entry per shape type using its base color
         lines.append("   Legend:")
-        for name in name_to_color_idx:
-            color_idx = name_to_color_idx[name]
-            bg = BASE_COLORS[color_idx][0]
+        for name in name_to_base:
+            color_idx = name_to_base[name]
+            bg = COLORS[color_idx % len(COLORS)]
             lines.append(f"   {bg}  {RESET} = {name}")
 
         return "\n".join(lines)
