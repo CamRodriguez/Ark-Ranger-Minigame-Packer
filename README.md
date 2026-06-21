@@ -5,7 +5,7 @@ A script that optimally arranges Tetris-style shapes into a 9x9 grid. Designed f
 ## Usage
 
 ```bash
-python3 ark_ranger.py [--backtrack] [--timeout SECONDS] shape1[:qty] shape2[:qty] ...
+python3 ark_ranger.py [--backtrack] [--timeout SECONDS] [--colorblind] shape1[:qty] shape2[:qty] ...
 ```
 
 ### Examples
@@ -17,8 +17,11 @@ python3 ark_ranger.py shotgun:3 dual_pistols:2 buffs square:4
 # Use the backtracking solver for an optimal solution
 python3 ark_ranger.py --backtrack blade:2 machine:3 fire corner:5
 
-# Backtrack with a custom timeout of 60 seconds
-python3 ark_ranger.py --backtrack --timeout 60 blade:2 machine:3
+# Backtrack with a custom timeout of 30 seconds
+python3 ark_ranger.py --backtrack --timeout 30 blade:2 machine:3
+
+# Colorblind-friendly mode
+python3 ark_ranger.py --colorblind --backtrack shotgun:3 square:4
 
 # Single shape (quantity defaults to 1)
 python3 ark_ranger.py blade shotgun corner
@@ -28,6 +31,7 @@ python3 ark_ranger.py blade shotgun corner
 
 - `--backtrack` — Use exhaustive backtracking solver. Slower but finds valid arrangements that greedy might miss.
 - `--timeout SECONDS` — Max time for backtracking solver (default: 60 seconds). Also stops after 2,000,000 attempts.
+- `--colorblind` — Use a colorblind-friendly palette.
 - Default (no flag) — Uses a greedy heuristic. Fast but may not find a solution even if one exists.
 
 ## Available Shapes
@@ -48,6 +52,14 @@ python3 ark_ranger.py blade shotgun corner
 | fire | 5 |
 | machine | 5 |
 | rifle_laser | 5 |
+
+## Output
+
+- The grid displays with colored blocks. Each weapon type has its own unique color.
+- When two of the same weapon type are placed next to each other, one uses a lighter shade so you can tell them apart.
+- A legend below the grid maps colors to shape names.
+- Empty cells are left blank.
+- Jewels are always placed last, backfilling any gaps after all other shapes are arranged.
 
 ## Notes
 
