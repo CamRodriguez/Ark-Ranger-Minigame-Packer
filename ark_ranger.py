@@ -113,6 +113,8 @@ class Grid:
         self.cells = [[0] * self.SIZE for _ in range(self.SIZE)]
         self.placements = []  # list of (shape_name, rotation_idx, x, y, shape_id)
         self.next_id = 1
+        self._filled = 0
+        self._shape_cells = {}  # shape_id -> list of (x, y) for fast removal
 
     def can_place(self, shape: Shape, ox: int, oy: int) -> bool:
         """Check if a shape can be placed at origin (ox, oy)."""
@@ -128,25 +130,30 @@ class Grid:
         """Place a shape at origin (ox, oy) and return its ID."""
         shape_id = self.next_id
         self.next_id += 1
+        coords = []
         for dx, dy in shape:
-            self.cells[ox + dx][oy + dy] = shape_id
+            x, y = ox + dx, oy + dy
+            self.cells[x][y] = shape_id
+            coords.append((x, y))
+        self._shape_cells[shape_id] = coords
+        self._filled += len(shape)
         self.placements.append((name, rot, ox, oy, shape_id))
         return shape_id
 
     def remove(self, shape_id: int):
-        """Remove a placed shape by its ID."""
-        for x in range(self.SIZE):
-            for y in range(self.SIZE):
-                if self.cells[x][y] == shape_id:
-                    self.cells[x][y] = 0
-        self.placements = [p for p in self.placements if p[4] != shape_id]
+        """Remove a placed shape by its ID using stored coordinates."""
+        coords = self._shape_cells.pop(shape_id)
+        for x, y in coords:
+            self.cells[x][y] = 0
+        self._filled -= len(coords)
+        self.placements.pop()  # backtracking always removes the last placed
 
     def cells_filled(self) -> int:
         """Count how many cells are occupied."""
-        return sum(1 for x in range(self.SIZE) for y in range(self.SIZE) if self.cells[x][y] != 0)
+        return self._filled
 
     def is_full(self) -> bool:
-        return self.cells_filled() == self.SIZE * self.SIZE
+        return self._filled == self.SIZE * self.SIZE
 
     def display(self) -> str:
         """Return a visual string representation with (0,0) at bottom-left."""
@@ -297,16 +304,15 @@ def find_first_empty(grid: Grid) -> Optional[Coord]:
 
 
 def solve(grid: Grid, shapes_to_place: List[Tuple[str, List[Shape]]],
-          best: List[int], best_grid: List[Optional[Grid]],
+          best: List[int], best_grid: List[Optional['Grid']],
           calls: List[int] = None, max_attempts: int = 2_000_000,
           timeout: float = 60, start_time: float = None) -> bool:
     """
-    Backtracking solver that tries to place all shapes.
-    Tries all rotations for each shape at each position.
-
-    Returns True if all shapes are placed.
-    Tracks the best solution found (most cells filled).
-    Stops if max_attempts or timeout is reached.
+    Backtracking solver with constraint propagation.
+    
+    Targets the first empty cell — if no remaining shape can cover it,
+    prunes this branch immediately (that cell will never be filled).
+    Deduplicates identical shapes to avoid redundant work.
     """
     if calls is None:
         calls = [0]
@@ -329,29 +335,52 @@ def solve(grid: Grid, shapes_to_place: List[Tuple[str, List[Shape]]],
     current_filled = grid.cells_filled()
     if current_filled > best[0]:
         best[0] = current_filled
+        # Store placement info for reconstruction
         best_grid[0] = copy.deepcopy(grid)
 
     if not shapes_to_place:
         print(f"\r  Solution found after {calls[0]:,} attempts ({time.time() - start_time:.1f}s).                          ")
         return True
 
-    # Try each remaining shape at every valid position on the grid
+    # Find the first empty cell (bottom-to-top, left-to-right)
+    target = None
+    for y in range(Grid.SIZE):
+        for x in range(Grid.SIZE):
+            if grid.cells[x][y] == 0:
+                target = (x, y)
+                break
+        if target:
+            break
+
+    if target is None:
+        print(f"\r  Solution found after {calls[0]:,} attempts ({time.time() - start_time:.1f}s).                          ")
+        return True
+
+    tx, ty = target
+
+    # Try each remaining shape, skipping duplicates
+    tried_shapes = set()  # track (shape_name) to skip identical pieces
     for i, (name, rotations) in enumerate(shapes_to_place):
+        if name in tried_shapes:
+            continue
+        tried_shapes.add(name)
+
         remaining = shapes_to_place[:i] + shapes_to_place[i+1:]
 
-        for rot_idx, rot_shape in enumerate(rotations):
-            for ox in range(Grid.SIZE):
-                for oy in range(Grid.SIZE):
-                    if grid.can_place(rot_shape, ox, oy):
-                        shape_id = grid.place(rot_shape, ox, oy, name, rot_idx)
-                        if solve(grid, remaining, best, best_grid, calls, max_attempts, timeout, start_time):
-                            return True
-                        grid.remove(shape_id)
-                        # Early exit if limits hit
-                        if calls[0] > max_attempts:
-                            return False
-                        if calls[0] % 1000 == 0 and time.time() - start_time >= timeout:
-                            return False
+        for rot_shape in rotations:
+            # Only try placements that cover the target empty cell
+            for dx, dy in rot_shape:
+                ox, oy = tx - dx, ty - dy
+                if grid.can_place(rot_shape, ox, oy):
+                    shape_id = grid.place(rot_shape, ox, oy, name, 0)
+                    if solve(grid, remaining, best, best_grid, calls, max_attempts, timeout, start_time):
+                        return True
+                    grid.remove(shape_id)
+                    # Early exit if limits hit
+                    if calls[0] > max_attempts:
+                        return False
+                    if calls[0] % 1000 == 0 and time.time() - start_time >= timeout:
+                        return False
 
     return False
 
