@@ -167,162 +167,67 @@ class Grid:
         return "\n".join(lines)
 
     def display_pretty(self) -> str:
-        """Display with box-drawing borders between different shapes. (0,0) at bottom-left."""
-        # Box-drawing characters
-        H = "─"  # horizontal
-        V = "│"  # vertical
-        TL = "┌"  # top-left
-        TR = "┐"  # top-right
-        BL = "└"  # bottom-left
-        BR = "┘"  # bottom-right
-        T = "┬"   # top tee
-        B = "┴"   # bottom tee
-        L = "├"   # left tee
-        R = "┤"   # right tee
-        X = "┼"   # cross
+        """Display with colored filled blocks and a legend below."""
+        # ANSI background colors
+        BG_COLORS = [
+            "\033[41m",   # red
+            "\033[42m",   # green
+            "\033[43m",   # yellow
+            "\033[44m",   # blue
+            "\033[45m",   # magenta
+            "\033[46m",   # cyan
+            "\033[101m",  # bright red
+            "\033[102m",  # bright green
+            "\033[103m",  # bright yellow
+            "\033[104m",  # bright blue
+            "\033[105m",  # bright magenta
+            "\033[106m",  # bright cyan
+            "\033[47m",   # white
+            "\033[100m",  # bright black (gray)
+        ]
+        RESET = "\033[0m"
 
         size = self.SIZE
 
-        def get_id(x, y):
-            """Get shape ID at (x, y), or 0 if out of bounds or empty."""
-            if 0 <= x < size and 0 <= y < size:
-                return self.cells[x][y]
-            return 0
+        # Map shape IDs to color indices
+        id_to_color = {}
+        for idx, (_, _, _, _, shape_id) in enumerate(self.placements):
+            id_to_color[shape_id] = idx % len(BG_COLORS)
 
-        # Build the grid string with borders
-        # Each cell is 3 chars wide, 1 char tall
-        # We need (size+1) horizontal lines and (size+1) vertical lines
+        def colored_cell(shape_id):
+            if shape_id == 0:
+                return "  "
+            color_idx = id_to_color[shape_id]
+            bg = BG_COLORS[color_idx]
+            return f"{bg}  {RESET}"
+
         lines = []
 
         # X-axis label
-        x_label = "    "
+        x_label = "   "
         for x in range(size):
-            x_label += f" {x}  "
-        lines.append(x_label + " x")
+            x_label += f"{x} "
+        lines.append(x_label)
 
-        # Build row by row from top (y=8) to bottom (y=0)
+        # Grid rows from top to bottom
         for y in range(size - 1, -1, -1):
-            # Top border of this row
-            border = ""
+            row_str = f"{y}  "
             for x in range(size):
-                above = get_id(x, y + 1)
-                curr = get_id(x, y)
-                # Determine left corner
-                left_above = get_id(x - 1, y + 1)
-                left_curr = get_id(x - 1, y)
-
-                # Choose corner character
-                if x == 0:
-                    if y == size - 1:
-                        corner = TL
-                    else:
-                        # Left edge: is there a border above or below?
-                        h_border = (above != curr)
-                        v_border_below = (left_curr != curr)  # always true at edge
-                        corner = L if h_border else V if v_border_below else " "
-                        corner = L
-                else:
-                    h_left = (left_above != left_curr)
-                    h_right = (above != curr)
-                    v_top = (left_above != above)
-                    v_bottom = (left_curr != curr)
-
-                    if y == size - 1:
-                        # Top edge
-                        if v_bottom:
-                            corner = T
-                        else:
-                            corner = H if h_right else H
-                            corner = T if v_bottom else H
-                    else:
-                        # Interior
-                        has_h = h_left or h_right
-                        has_v = v_top or v_bottom
-                        if has_h and has_v:
-                            corner = X
-                        elif has_h:
-                            if v_bottom:
-                                corner = T
-                            elif v_top:
-                                corner = B
-                            else:
-                                corner = H
-                        elif has_v:
-                            if h_right:
-                                corner = L
-                            elif h_left:
-                                corner = R
-                            else:
-                                corner = V
-                        else:
-                            corner = " "
-
-                # Horizontal segment
-                if above != curr:
-                    seg = H * 3
-                else:
-                    seg = "   "
-
-                border += corner + seg
-
-            # Right edge corner
-            if y == size - 1:
-                border += TR
-            else:
-                above_r = get_id(size - 1, y + 1)
-                curr_r = get_id(size - 1, y)
-                if above_r != curr_r:
-                    border += R
-                else:
-                    border += V
-
-            lines.append("   " + border)
-
-            # Cell content row
-            row_str = f"{y}  {V}"
-            for x in range(size):
-                curr = get_id(x, y)
-                right = get_id(x + 1, y)
-
-                # Cell content
-                if curr == 0:
-                    cell = " . "
-                else:
-                    # Map to label
-                    idx = next((i for i, p in enumerate(self.placements) if p[4] == curr), -1)
-                    if idx >= 0 and idx < 26:
-                        cell = f" {chr(65 + idx)} "
-                    elif idx >= 0:
-                        cell = f" {chr(97 + idx - 26)} "
-                    else:
-                        cell = " ? "
-
-                # Right border
-                if x == size - 1:
-                    row_str += cell + V
-                elif curr != right:
-                    row_str += cell + V
-                else:
-                    row_str += cell + " "
-
+                row_str += colored_cell(self.cells[x][y])
             lines.append(row_str)
 
-        # Bottom border
-        border = ""
-        for x in range(size):
-            curr = get_id(x, 0)
-            left = get_id(x - 1, 0)
-            if x == 0:
-                corner = BL
-            else:
-                if left != curr:
-                    corner = B
-                else:
-                    corner = H
-            border += corner + H * 3
-        border += BR
-        lines.append("   " + border)
-        lines.append("y")
+        lines.append("")
+
+        # Legend
+        lines.append("   Legend:")
+        seen = {}
+        for name, _, _, _, shape_id in self.placements:
+            if name not in seen:
+                color_idx = id_to_color[shape_id]
+                seen[name] = color_idx
+        for name, color_idx in seen.items():
+            bg = BG_COLORS[color_idx]
+            lines.append(f"   {bg}  {RESET} = {name}")
 
         return "\n".join(lines)
 
@@ -338,8 +243,8 @@ def find_first_empty(grid: Grid) -> Optional[Coord]:
 
 def solve(grid: Grid, shapes_to_place: List[Tuple[str, List[Shape]]],
           best: List[int], best_grid: List[Optional[Grid]],
-          calls: List[int] = None, max_attempts: int = 5_000_000,
-          timeout: float = 120, start_time: float = None) -> bool:
+          calls: List[int] = None, max_attempts: int = 2_000_000,
+          timeout: float = 60, start_time: float = None) -> bool:
     """
     Backtracking solver that tries to place all shapes.
     Tries all rotations for each shape at each position.
@@ -466,12 +371,12 @@ def pack_shapes(shape_list: List[str], strategy: str = "greedy", timeout: float 
         # Sort largest first for better pruning
         shapes_to_place.sort(key=lambda x: len(x[1][0]), reverse=True)
         solved = solve(grid, shapes_to_place, best, best_grid, calls,
-                       max_attempts=5_000_000, timeout=timeout, start_time=time.time())
+                       max_attempts=2_000_000, timeout=timeout, start_time=time.time())
         if solved:
             return grid
         # Return best partial solution found
-        if calls[0] > 5_000_000:
-            print(f"\r  Max attempts (5,000,000) reached. Best: {best[0]} cells filled.                ")
+        if calls[0] > 2_000_000:
+            print(f"\r  Max attempts (2,000,000) reached. Best: {best[0]} cells filled.                ")
         elif not solved and calls[0] <= 5_000_000:
             elapsed = time.time()
             print(f"\r  Exhausted search after {calls[0]:,} attempts. Best: {best[0]} cells filled.     ")
@@ -491,7 +396,7 @@ if __name__ == "__main__":
         # Use --backtrack flag for optimal solver (default is greedy)
         args = sys.argv[1:]
         strategy = "greedy"
-        timeout = 120  # default 2 minutes
+        timeout = 60  # default 60 seconds
 
         if "--backtrack" in args:
             args.remove("--backtrack")
@@ -522,7 +427,7 @@ if __name__ == "__main__":
             print("\nFlags:")
             print("  --backtrack       Use exhaustive backtracking solver (slower, optimal)")
             print("                    Default is greedy (fast, may not be optimal)")
-            print("  --timeout SECS    Max seconds for backtracking (default: 120)")
+            print("  --timeout SECS    Max seconds for backtracking (default: 60)")
             sys.exit(0)
 
         # Validate shape names
@@ -577,11 +482,6 @@ if __name__ == "__main__":
             print(f"\n⚠️  Could not fit all pieces! {len(unplaced)} shape(s) unplaced:")
             for name in unplaced:
                 print(f"  - {name}")
-
-        if result.placements:
-            print("\nPlacement details:")
-            for name, rot, x, y, sid in result.placements:
-                print(f"  {name} (rotation {rot}) at x={x}, y={y}")
     else:
         print("Usage: python3 tetris_grid.py [--backtrack] shape1[:qty] shape2[:qty] ...")
         print(f"\nAvailable shapes: {', '.join(sorted(SHAPES.keys()))}")
