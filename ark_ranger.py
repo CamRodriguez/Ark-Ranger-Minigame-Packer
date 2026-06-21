@@ -205,13 +205,13 @@ class Grid:
 
         # X-axis label
         x_label = "   "
-        for x in range(size):
+        for x in range(1, size + 1):
             x_label += f"{x} "
         lines.append(x_label)
 
         # Grid rows from top to bottom
         for y in range(size - 1, -1, -1):
-            row_str = f"{y}  "
+            row_str = f"{y + 1}  "
             for x in range(size):
                 row_str += colored_cell(self.cells[x][y])
             lines.append(row_str)
