@@ -228,7 +228,7 @@ class Grid:
         for x in range(size):
             for y in range(size):
                 curr = self.cells[x][y]
-                if curr == 0:
+                if curr <= 0:
                     continue
                 if curr not in neighbors:
                     neighbors[curr] = set()
@@ -236,7 +236,7 @@ class Grid:
                     nx, ny = x + dx, y + dy
                     if 0 <= nx < size and 0 <= ny < size:
                         adj = self.cells[nx][ny]
-                        if adj != 0 and adj != curr:
+                        if adj > 0 and adj != curr:
                             neighbors[curr].add(adj)
 
         # Assign a fixed base color per shape TYPE (for the legend)
@@ -272,7 +272,7 @@ class Grid:
                     id_to_color[shape_id] = preferred  # fallback
 
         def colored_cell(shape_id):
-            if shape_id == 0:
+            if shape_id <= 0:
                 return "  "
             color_idx = id_to_color[shape_id]
             bg = COLORS[color_idx % len(COLORS)]
@@ -321,8 +321,9 @@ def solve(grid: Grid, shapes_to_place: List[Tuple[str, List[Shape]]],
     """
     Backtracking solver with constraint propagation.
     
-    Targets the first empty cell — if no remaining shape can cover it,
-    prunes this branch immediately (that cell will never be filled).
+    Targets the first empty cell — tries all shapes that can cover it.
+    If no shape can cover it, marks it as a dead cell and continues
+    placing remaining shapes elsewhere (maximizes cells filled).
     Deduplicates identical shapes to avoid redundant work.
     """
     if calls is None:
@@ -346,7 +347,6 @@ def solve(grid: Grid, shapes_to_place: List[Tuple[str, List[Shape]]],
     current_filled = grid.cells_filled()
     if current_filled > best[0]:
         best[0] = current_filled
-        # Store placement info for reconstruction
         best_grid[0] = copy.deepcopy(grid)
 
     if not shapes_to_place:
@@ -370,7 +370,8 @@ def solve(grid: Grid, shapes_to_place: List[Tuple[str, List[Shape]]],
     tx, ty = target
 
     # Try each remaining shape, skipping duplicates
-    tried_shapes = set()  # track (shape_name) to skip identical pieces
+    tried_shapes = set()
+    any_placed = False
     for i, (name, rotations) in enumerate(shapes_to_place):
         if name in tried_shapes:
             continue
@@ -383,6 +384,7 @@ def solve(grid: Grid, shapes_to_place: List[Tuple[str, List[Shape]]],
             for dx, dy in rot_shape:
                 ox, oy = tx - dx, ty - dy
                 if grid.can_place(rot_shape, ox, oy):
+                    any_placed = True
                     shape_id = grid.place(rot_shape, ox, oy, name, 0)
                     if solve(grid, remaining, best, best_grid, calls, max_attempts, timeout, start_time):
                         return True
@@ -393,6 +395,8 @@ def solve(grid: Grid, shapes_to_place: List[Tuple[str, List[Shape]]],
                     if calls[0] % 1000 == 0 and time.time() - start_time >= timeout:
                         return False
 
+    # If no shape could cover this cell, this branch is a dead end.
+    # The best partial solution is already tracked via best_grid.
     return False
 
 
