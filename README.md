@@ -5,17 +5,20 @@ A script that optimally arranges Tetris-style shapes into a 9x9 grid. Designed f
 ## Usage
 
 ```bash
-python3 ark_ranger.py [--backtrack] shape1[:qty] shape2[:qty] ...
+python3 ark_ranger.py [--backtrack] [--timeout SECONDS] shape1[:qty] shape2[:qty] ...
 ```
 
 ### Examples
 
 ```bash
-# Pack 3 shotguns, 2 dual_pistols, 1 buffs, and 4 2x2 blocks
-python3 ark_ranger.py shotgun:3 dual_pistols:2 buffs "2x2:4"
+# Pack 3 shotguns, 2 dual_pistols, 1 buffs, and 4 squares
+python3 ark_ranger.py shotgun:3 dual_pistols:2 buffs square:4
 
 # Use the backtracking solver for an optimal solution
 python3 ark_ranger.py --backtrack blade:2 machine:3 fire corner:5
+
+# Backtrack with a custom timeout of 60 seconds
+python3 ark_ranger.py --backtrack --timeout 60 blade:2 machine:3
 
 # Single shape (quantity defaults to 1)
 python3 ark_ranger.py blade shotgun corner
@@ -24,6 +27,7 @@ python3 ark_ranger.py blade shotgun corner
 ### Flags
 
 - `--backtrack` — Use exhaustive backtracking solver. Slower but finds valid arrangements that greedy might miss.
+- `--timeout SECONDS` — Max time for backtracking solver (default: 120 seconds). Also stops after 5,000,000 attempts.
 - Default (no flag) — Uses a greedy heuristic. Fast but may not find a solution even if one exists.
 
 ## Available Shapes
@@ -34,7 +38,7 @@ python3 ark_ranger.py blade shotgun corner
 | data_chip | 2 |
 | buffs | 3 |
 | corner | 3 |
-| 2x2 | 4 |
+| square | 4 |
 | dual_pistols | 4 |
 | launcher | 4 |
 | photon | 4 |
@@ -50,5 +54,5 @@ python3 ark_ranger.py blade shotgun corner
 - Shapes are automatically rotated (0°, 90°, 180°, 270°) to find the best fit.
 - The grid is 9x9 (81 cells max). The script will error if your shapes exceed this.
 - If not all pieces fit, the output shows which shapes were unplaced.
-- The backtracking solver shows live progress while searching.
-- Shape names with special characters (like `2x2`) should be quoted on the command line.
+- The backtracking solver shows live progress (attempts, time elapsed, best solution so far).
+- Backtracking stops after 2 minutes or 5,000,000 attempts (whichever comes first) and returns the best solution found.

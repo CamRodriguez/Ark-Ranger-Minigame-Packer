@@ -12,6 +12,7 @@ and uses backtracking or greedy heuristics to optimally arrange them.
 """
 
 import copy
+import time
 from typing import List, Tuple, Set, Optional
 
 # Type aliases
@@ -31,7 +32,7 @@ SHAPES = {
     "buffs": [(0, 0), (1, 0), (2, 0)],
 
     # Squares
-    "grenade": [(0, 0), (1, 0), (0, 1), (1, 1)],
+    "square": [(0, 0), (1, 0), (0, 1), (1, 1)],
 
     # L-shape (other orientations come from rotation)
     "shotgun": [(0, 0), (0, 1), (0, 2), (1, 0)],
@@ -337,21 +338,33 @@ def find_first_empty(grid: Grid) -> Optional[Coord]:
 
 def solve(grid: Grid, shapes_to_place: List[Tuple[str, List[Shape]]],
           best: List[int], best_grid: List[Optional[Grid]],
-          max_depth: int = 5000, depth: int = 0, calls: List[int] = None) -> bool:
+          calls: List[int] = None, max_attempts: int = 5_000_000,
+          timeout: float = 120, start_time: float = None) -> bool:
     """
-    Backtracking solver that tries to place all shapes optimally.
+    Backtracking solver that tries to place all shapes.
     Tries all rotations for each shape at each position.
 
     Returns True if all shapes are placed.
     Tracks the best solution found (most cells filled).
+    Stops if max_attempts or timeout is reached.
     """
     if calls is None:
         calls = [0]
+    if start_time is None:
+        start_time = time.time()
+
     calls[0] += 1
 
-    # Print progress every 1000 calls
+    # Check limits
+    if calls[0] > max_attempts:
+        return False
+
     if calls[0] % 1000 == 0:
-        print(f"\r  Searching... {calls[0]:,} attempts | best so far: {best[0]} cells filled", end="", flush=True)
+        elapsed = time.time() - start_time
+        if elapsed >= timeout:
+            print(f"\r  Timeout ({timeout}s) reached after {calls[0]:,} attempts.                          ")
+            return False
+        print(f"\r  Searching... {calls[0]:,} attempts | best so far: {best[0]} cells | {elapsed:.0f}s elapsed", end="", flush=True)
 
     current_filled = grid.cells_filled()
     if current_filled > best[0]:
@@ -359,11 +372,8 @@ def solve(grid: Grid, shapes_to_place: List[Tuple[str, List[Shape]]],
         best_grid[0] = copy.deepcopy(grid)
 
     if not shapes_to_place:
-        print(f"\r  Solution found after {calls[0]:,} attempts.                          ")
+        print(f"\r  Solution found after {calls[0]:,} attempts ({time.time() - start_time:.1f}s).                          ")
         return True
-
-    if depth >= max_depth:
-        return False
 
     # Try each remaining shape at every valid position on the grid
     for i, (name, rotations) in enumerate(shapes_to_place):
@@ -374,9 +384,14 @@ def solve(grid: Grid, shapes_to_place: List[Tuple[str, List[Shape]]],
                 for oy in range(Grid.SIZE):
                     if grid.can_place(rot_shape, ox, oy):
                         shape_id = grid.place(rot_shape, ox, oy, name, rot_idx)
-                        if solve(grid, remaining, best, best_grid, max_depth, depth + 1, calls):
+                        if solve(grid, remaining, best, best_grid, calls, max_attempts, timeout, start_time):
                             return True
                         grid.remove(shape_id)
+                        # Early exit if limits hit
+                        if calls[0] > max_attempts:
+                            return False
+                        if calls[0] % 1000 == 0 and time.time() - start_time >= timeout:
+                            return False
 
     return False
 
@@ -423,7 +438,7 @@ def greedy_place(grid: Grid, shapes_to_place: List[Tuple[str, List[Shape]]]) -> 
     return grid
 
 
-def pack_shapes(shape_list: List[str], strategy: str = "greedy") -> Grid:
+def pack_shapes(shape_list: List[str], strategy: str = "greedy", timeout: float = 120) -> Grid:
     """
     Main entry point. Takes a list of shape names and packs them into a 9x9 grid.
     Each shape will be tried in all valid rotations.
@@ -431,6 +446,7 @@ def pack_shapes(shape_list: List[str], strategy: str = "greedy") -> Grid:
     Args:
         shape_list: List of shape names (keys from SHAPES dict).
         strategy: "greedy" for fast heuristic, "backtrack" for optimal search.
+        timeout: Max seconds for backtracking solver (default 120).
 
     Returns:
         The resulting Grid with shapes placed.
@@ -449,11 +465,16 @@ def pack_shapes(shape_list: List[str], strategy: str = "greedy") -> Grid:
         calls = [0]
         # Sort largest first for better pruning
         shapes_to_place.sort(key=lambda x: len(x[1][0]), reverse=True)
-        solved = solve(grid, shapes_to_place, best, best_grid, max_depth=5000, depth=0, calls=calls)
+        solved = solve(grid, shapes_to_place, best, best_grid, calls,
+                       max_attempts=5_000_000, timeout=timeout, start_time=time.time())
         if solved:
             return grid
         # Return best partial solution found
-        print(f"\r  Exhausted search after {calls[0]:,} attempts. Best: {best[0]} cells filled.     ")
+        if calls[0] > 5_000_000:
+            print(f"\r  Max attempts (5,000,000) reached. Best: {best[0]} cells filled.                ")
+        elif not solved and calls[0] <= 5_000_000:
+            elapsed = time.time()
+            print(f"\r  Exhausted search after {calls[0]:,} attempts. Best: {best[0]} cells filled.     ")
         return best_grid[0] if best_grid[0] else grid
     else:
         return greedy_place(grid, shapes_to_place)
@@ -470,19 +491,38 @@ if __name__ == "__main__":
         # Use --backtrack flag for optimal solver (default is greedy)
         args = sys.argv[1:]
         strategy = "greedy"
+        timeout = 120  # default 2 minutes
+
         if "--backtrack" in args:
             args.remove("--backtrack")
             strategy = "backtrack"
 
+        # Parse --timeout flag
+        if "--timeout" in args:
+            idx = args.index("--timeout")
+            if idx + 1 < len(args):
+                try:
+                    timeout = int(args[idx + 1])
+                except ValueError:
+                    print(f"Error: --timeout requires a number (seconds). Got '{args[idx + 1]}'")
+                    sys.exit(1)
+                args.pop(idx)  # remove --timeout
+                args.pop(idx)  # remove the value
+            else:
+                print("Error: --timeout requires a value (seconds)")
+                sys.exit(1)
+
         if "--help" in args or "-h" in args:
-            print("Usage: python3 tetris_grid.py [--backtrack] shape1[:qty] shape2[:qty] ...")
+            print("Usage: python3 ark_ranger.py [--backtrack] [--timeout SECONDS] shape1[:qty] shape2[:qty] ...")
             print(f"\nAvailable shapes: {', '.join(sorted(SHAPES.keys()))}")
             print("\nExamples:")
-            print("  python3 tetris_grid.py shotgun:3 dual_pistols:2 buffs grenade:4")
-            print("  python3 tetris_grid.py --backtrack blade:2 machine:3 fire corner:5")
+            print("  python3 ark_ranger.py shotgun:3 dual_pistols:2 buffs square:4")
+            print("  python3 ark_ranger.py --backtrack blade:2 machine:3 fire corner:5")
+            print("  python3 ark_ranger.py --backtrack --timeout 60 blade:2 machine:3")
             print("\nFlags:")
-            print("  --backtrack   Use exhaustive backtracking solver (slower, optimal)")
-            print("                Default is greedy (fast, may not be optimal)")
+            print("  --backtrack       Use exhaustive backtracking solver (slower, optimal)")
+            print("                    Default is greedy (fast, may not be optimal)")
+            print("  --timeout SECS    Max seconds for backtracking (default: 120)")
             sys.exit(0)
 
         # Validate shape names
@@ -524,7 +564,7 @@ if __name__ == "__main__":
             sys.exit(1)
         print(f"Packing {len(shape_list)} shapes ({total_cells} cells) using {strategy} strategy...\n")
 
-        result = pack_shapes(shape_list, strategy=strategy)
+        result = pack_shapes(shape_list, strategy=strategy, timeout=timeout)
         print(result.display_pretty())
         print(f"\nCells filled: {result.cells_filled()} / 81")
         print(f"Pieces placed: {len(result.placements)} / {len(shape_list)}")
@@ -546,5 +586,5 @@ if __name__ == "__main__":
         print("Usage: python3 tetris_grid.py [--backtrack] shape1[:qty] shape2[:qty] ...")
         print(f"\nAvailable shapes: {', '.join(sorted(SHAPES.keys()))}")
         print("\nExamples:")
-        print("  python3 tetris_grid.py shotgun:3 dual_pistols:2 buffs grenade:4")
-        print("  python3 tetris_grid.py --backtrack blade:2 machine:3 fire corner:5")
+        print("  python3 ark_ranger.py shotgun:3 dual_pistols:2 buffs square:4")
+        print("  python3 ark_ranger.py --backtrack blade:2 machine:3 fire corner:5")
