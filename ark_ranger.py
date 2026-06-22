@@ -103,24 +103,85 @@ def get_rotations(shape: Shape) -> List[Shape]:
 SHAPE_ROTATIONS = {name: get_rotations(coords) for name, coords in SHAPES.items()}
 
 
+BLOCKED = -2  # Sentinel for cells that are not part of the grid
+
+
+def load_grid_layout(filepath: str) -> List[List[bool]]:
+    """
+    Load a grid layout from a text file.
+    '#' or 'X' = valid cell, '.' or ' ' = blocked/missing cell.
+    The file is read top-to-bottom, so the first line is the top row.
+    Returns a 2D list [x][y] where True = valid cell.
+    """
+    with open(filepath, 'r') as f:
+        lines = [line.rstrip('\n') for line in f.readlines()]
+
+    # Remove empty lines
+    lines = [line for line in lines if line.strip()]
+
+    # Parse each line into cells (split by spaces or treat each char)
+    rows = []
+    for line in lines:
+        # Support space-separated or character-by-character
+        if ' ' in line.strip():
+            cells = line.split()
+        else:
+            cells = list(line)
+        rows.append(cells)
+
+    # Determine grid dimensions
+    height = len(rows)
+    width = max(len(row) for row in rows)
+
+    # Build layout[x][y] — file is top-to-bottom, so flip y
+    layout = [[False] * height for _ in range(width)]
+    for row_idx, row in enumerate(rows):
+        y = height - 1 - row_idx  # flip: first line = top = highest y
+        for x, cell in enumerate(row):
+            if cell in ('#', 'X', 'x'):
+                layout[x][y] = True
+
+    return layout
+
+
 class Grid:
-    """A 9x9 grid using math-style (x, y) coordinates with (0,0) at bottom-left."""
+    """A grid using math-style (x, y) coordinates with (0,0) at bottom-left.
+    Supports custom layouts with blocked cells."""
 
-    SIZE = 9
+    def __init__(self, layout: Optional[List[List[bool]]] = None, size: int = 9):
+        if layout:
+            self.width = len(layout)
+            self.height = len(layout[0])
+            # cells[x][y]: 0 = empty, BLOCKED = not part of grid, positive int = shape ID
+            self.cells = [[0] * self.height for _ in range(self.width)]
+            self._valid_cells = 0
+            for x in range(self.width):
+                for y in range(self.height):
+                    if not layout[x][y]:
+                        self.cells[x][y] = BLOCKED
+                    else:
+                        self._valid_cells += 1
+        else:
+            self.width = size
+            self.height = size
+            self.cells = [[0] * self.height for _ in range(self.width)]
+            self._valid_cells = size * size
 
-    def __init__(self):
-        # cells[x][y]: 0 = empty, positive int = shape ID
-        self.cells = [[0] * self.SIZE for _ in range(self.SIZE)]
         self.placements = []  # list of (shape_name, rotation_idx, x, y, shape_id)
         self.next_id = 1
         self._filled = 0
         self._shape_cells = {}  # shape_id -> list of (x, y) for fast removal
 
+    # Keep SIZE as a property for backward compatibility in solver
+    @property
+    def SIZE(self):
+        return max(self.width, self.height)
+
     def can_place(self, shape: Shape, ox: int, oy: int) -> bool:
         """Check if a shape can be placed at origin (ox, oy)."""
         for dx, dy in shape:
             x, y = ox + dx, oy + dy
-            if x < 0 or x >= self.SIZE or y < 0 or y >= self.SIZE:
+            if x < 0 or x >= self.width or y < 0 or y >= self.height:
                 return False
             if self.cells[x][y] != 0:
                 return False
@@ -153,19 +214,21 @@ class Grid:
         return self._filled
 
     def is_full(self) -> bool:
-        return self._filled == self.SIZE * self.SIZE
+        return self._filled == self._valid_cells
 
     def display(self) -> str:
         """Return a visual string representation with (0,0) at bottom-left."""
         lines = []
-        lines.append("    " + "  ".join(str(x) for x in range(self.SIZE)) + "  x")
-        lines.append("   " + "---" * self.SIZE)
-        # Print from top row (y=8) down to bottom row (y=0)
-        for y in range(self.SIZE - 1, -1, -1):
+        lines.append("    " + "  ".join(str(x) for x in range(self.width)) + "  x")
+        lines.append("   " + "---" * self.width)
+        # Print from top row down to bottom row
+        for y in range(self.height - 1, -1, -1):
             row_str = f"{y} |"
-            for x in range(self.SIZE):
+            for x in range(self.width):
                 val = self.cells[x][y]
-                if val:
+                if val == BLOCKED:
+                    row_str += "  X"
+                elif val:
                     row_str += f" {val:2d}"
                 else:
                     row_str += "  ."
@@ -196,38 +259,39 @@ class Grid:
                 "\033[48;5;173m",  # peach
             ]
         else:
-            # Muted matte palette — ordered to maximize contrast between adjacent indices
-            # Alternates: dark/light, warm/cool so any two neighbors are distinct
+            # High-contrast matte palette — no similar greens/cyans adjacent
+            # Ordered to maximize perceptual distance between consecutive entries
             COLORS = [
-                "\033[48;5;124m",  # muted red (dark warm)
-                "\033[48;5;37m",   # muted cyan (light cool)
-                "\033[48;5;136m",  # muted gold (light warm)
-                "\033[48;5;24m",   # muted dark blue (dark cool)
-                "\033[48;5;34m",   # muted green (medium cool)
-                "\033[48;5;168m",  # muted pink (light warm)
-                "\033[48;5;22m",   # muted dark green (dark cool)
-                "\033[48;5;172m",  # muted orange (light warm)
-                "\033[48;5;55m",   # muted indigo (dark cool)
-                "\033[48;5;178m",  # muted yellow (light warm)
-                "\033[48;5;97m",   # muted purple (dark warm)
-                "\033[48;5;36m",   # muted sea green (light cool)
-                "\033[48;5;88m",   # muted dark red (dark warm)
-                "\033[48;5;143m",  # muted khaki (light warm)
-                "\033[48;5;25m",   # muted blue (dark cool)
-                "\033[48;5;133m",  # muted magenta (medium warm)
-                "\033[48;5;28m",   # muted forest green (dark cool)
-                "\033[48;5;94m",   # muted brown (medium warm)
-                "\033[48;5;67m",   # muted sky blue (medium cool)
-                "\033[48;5;125m",  # muted deep pink (dark warm)
+                "\033[48;5;124m",  # brick red
+                "\033[48;5;25m",   # navy blue
+                "\033[48;5;178m",  # mustard yellow
+                "\033[48;5;97m",   # plum purple
+                "\033[48;5;34m",   # kelly green
+                "\033[48;5;172m",  # burnt orange
+                "\033[48;5;55m",   # deep indigo
+                "\033[48;5;143m",  # olive tan
+                "\033[48;5;168m",  # rose pink
+                "\033[48;5;24m",   # dark teal
+                "\033[48;5;136m",  # dark gold
+                "\033[48;5;90m",   # dark magenta
+                "\033[48;5;64m",   # army green
+                "\033[48;5;131m",  # sienna
+                "\033[48;5;61m",   # slate purple
+                "\033[48;5;130m",  # rust
+                "\033[48;5;23m",   # midnight blue
+                "\033[48;5;94m",   # chocolate
+                "\033[48;5;126m",  # berry
+                "\033[48;5;58m",   # dark olive
             ]
         RESET = "\033[0m"
 
-        size = self.SIZE
+        width = self.width
+        height = self.height
 
         # Build adjacency between shape IDs
         neighbors = {}
-        for x in range(size):
-            for y in range(size):
+        for x in range(width):
+            for y in range(height):
                 curr = self.cells[x][y]
                 if curr <= 0:
                     continue
@@ -235,7 +299,7 @@ class Grid:
                     neighbors[curr] = set()
                 for dx, dy in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
                     nx, ny = x + dx, y + dy
-                    if 0 <= nx < size and 0 <= ny < size:
+                    if 0 <= nx < width and 0 <= ny < height:
                         adj = self.cells[nx][ny]
                         if adj > 0 and adj != curr:
                             neighbors[curr].add(adj)
@@ -285,6 +349,8 @@ class Grid:
 
         def colored_cell(shape_id):
             if shape_id <= 0:
+                if shape_id == BLOCKED:
+                    return "  "  # blocked cells render as empty space
                 return "  "
             color_idx = id_to_color[shape_id]
             bg = COLORS[color_idx % len(COLORS)]
@@ -294,14 +360,14 @@ class Grid:
 
         # X-axis label
         x_label = "   "
-        for x in range(1, size + 1):
+        for x in range(1, width + 1):
             x_label += f"{x} "
         lines.append(x_label)
 
         # Grid rows from top to bottom
-        for y in range(size - 1, -1, -1):
+        for y in range(height - 1, -1, -1):
             row_str = f"{y + 1}  "
-            for x in range(size):
+            for x in range(width):
                 row_str += colored_cell(self.cells[x][y])
             lines.append(row_str)
 
@@ -319,8 +385,8 @@ class Grid:
 
 def find_first_empty(grid: Grid) -> Optional[Coord]:
     """Find the first empty cell scanning bottom-to-top, left-to-right."""
-    for y in range(Grid.SIZE):
-        for x in range(Grid.SIZE):
+    for y in range(grid.height):
+        for x in range(grid.width):
             if grid.cells[x][y] == 0:
                 return (x, y)
     return None
@@ -333,9 +399,9 @@ def solve(grid: Grid, shapes_to_place: List[Tuple[str, List[Shape]]],
     """
     Backtracking solver with constraint propagation.
     
-    Targets the first empty cell — tries all shapes that can cover it.
-    If no shape can cover it, marks it as a dead cell and continues
-    placing remaining shapes elsewhere (maximizes cells filled).
+    Targets the first empty cell. For shapes that can cover it, requires
+    they do so. If some shapes cannot reach it, allows skipping the cell
+    so those shapes can be placed elsewhere.
     Deduplicates identical shapes to avoid redundant work.
     """
     if calls is None:
@@ -367,8 +433,8 @@ def solve(grid: Grid, shapes_to_place: List[Tuple[str, List[Shape]]],
 
     # Find the first empty cell (bottom-to-top, left-to-right)
     target = None
-    for y in range(Grid.SIZE):
-        for x in range(Grid.SIZE):
+    for y in range(grid.height):
+        for x in range(grid.width):
             if grid.cells[x][y] == 0:
                 target = (x, y)
                 break
@@ -376,14 +442,18 @@ def solve(grid: Grid, shapes_to_place: List[Tuple[str, List[Shape]]],
             break
 
     if target is None:
-        print(f"\r  Solution found after {calls[0]:,} attempts ({time.time() - start_time:.1f}s).                          ")
-        return True
+        # No empty cells left — but check if all shapes are placed
+        if not shapes_to_place:
+            print(f"\r  Solution found after {calls[0]:,} attempts ({time.time() - start_time:.1f}s).                          ")
+            return True
+        return False
 
     tx, ty = target
 
-    # Try each remaining shape, skipping duplicates
+    # Try each remaining shape that can cover the target cell
     tried_shapes = set()
-    any_placed = False
+    has_uncoverable = False
+    any_shape_covered = False
     for i, (name, rotations) in enumerate(shapes_to_place):
         if name in tried_shapes:
             continue
@@ -391,24 +461,36 @@ def solve(grid: Grid, shapes_to_place: List[Tuple[str, List[Shape]]],
 
         remaining = shapes_to_place[:i] + shapes_to_place[i+1:]
 
+        shape_can_cover = False
         for rot_shape in rotations:
-            # Only try placements that cover the target empty cell
             for dx, dy in rot_shape:
                 ox, oy = tx - dx, ty - dy
                 if grid.can_place(rot_shape, ox, oy):
-                    any_placed = True
+                    shape_can_cover = True
+                    any_shape_covered = True
                     shape_id = grid.place(rot_shape, ox, oy, name, 0)
                     if solve(grid, remaining, best, best_grid, calls, max_attempts, timeout, start_time):
                         return True
                     grid.remove(shape_id)
-                    # Early exit if limits hit
                     if calls[0] > max_attempts:
                         return False
                     if calls[0] % 1000 == 0 and time.time() - start_time >= timeout:
                         return False
 
-    # If no shape could cover this cell, this branch is a dead end.
-    # The best partial solution is already tracked via best_grid.
+        if not shape_can_cover:
+            has_uncoverable = True
+
+    # If NO shape could cover this cell at all, skip it so remaining shapes
+    # can be placed in other valid positions (only on non-rectangular grids).
+    if not any_shape_covered:
+        if grid._valid_cells < grid.width * grid.height:
+            old_val = grid.cells[tx][ty]
+            grid.cells[tx][ty] = BLOCKED
+            if solve(grid, shapes_to_place, best, best_grid, calls, max_attempts, timeout, start_time):
+                grid.cells[tx][ty] = old_val
+                return True
+            grid.cells[tx][ty] = old_val
+
     return False
 
 
@@ -426,8 +508,8 @@ def greedy_place(grid: Grid, shapes_to_place: List[Tuple[str, List[Shape]]]) -> 
     while changed and remaining:
         changed = False
         # Scan all empty cells
-        for y in range(Grid.SIZE):
-            for x in range(Grid.SIZE):
+        for y in range(grid.height):
+            for x in range(grid.width):
                 if grid.cells[x][y] != 0:
                     continue
                 # Try to place a shape covering this cell
@@ -454,9 +536,10 @@ def greedy_place(grid: Grid, shapes_to_place: List[Tuple[str, List[Shape]]]) -> 
     return grid
 
 
-def pack_shapes(shape_list: List[str], strategy: str = "greedy", timeout: float = 30) -> Grid:
+def pack_shapes(shape_list: List[str], strategy: str = "greedy", timeout: float = 30,
+                layout: Optional[List[List[bool]]] = None) -> Grid:
     """
-    Main entry point. Takes a list of shape names and packs them into a 9x9 grid.
+    Main entry point. Takes a list of shape names and packs them into a grid.
     Each shape will be tried in all valid rotations.
     Jewels are placed last, backfilling any remaining empty cells.
 
@@ -464,6 +547,7 @@ def pack_shapes(shape_list: List[str], strategy: str = "greedy", timeout: float 
         shape_list: List of shape names (keys from SHAPES dict).
         strategy: "greedy" for fast heuristic, "backtrack" for optimal search.
         timeout: Max seconds for backtracking solver (default 30).
+        layout: Optional custom grid layout. None = default 9x9 square.
 
     Returns:
         The resulting Grid with shapes placed.
@@ -478,7 +562,7 @@ def pack_shapes(shape_list: List[str], strategy: str = "greedy", timeout: float 
             raise ValueError(f"Unknown shape: '{name}'. Available: {sorted(SHAPES.keys())}")
         shapes_to_place.append((name, SHAPE_ROTATIONS[name]))
 
-    grid = Grid()
+    grid = Grid(layout=layout)
 
     if strategy == "backtrack":
         best = [0]
@@ -500,8 +584,8 @@ def pack_shapes(shape_list: List[str], strategy: str = "greedy", timeout: float 
     # Backfill empty cells with jewels
     if jewels:
         jewel_shape = SHAPE_ROTATIONS["jewel"][0]
-        for y in range(Grid.SIZE):
-            for x in range(Grid.SIZE):
+        for y in range(grid.height):
+            for x in range(grid.width):
                 if not jewels:
                     break
                 if grid.cells[x][y] == 0:
@@ -548,19 +632,43 @@ if __name__ == "__main__":
             args.remove("--colorblind")
             colorblind = True
 
+        # Parse --grid flag
+        layout = None
+        if "--grid" in args:
+            idx = args.index("--grid")
+            if idx + 1 < len(args):
+                grid_file = args[idx + 1]
+                args.pop(idx)  # remove --grid
+                args.pop(idx)  # remove the filename
+                try:
+                    layout = load_grid_layout(grid_file)
+                except FileNotFoundError:
+                    print(f"Error: Grid file '{grid_file}' not found.")
+                    sys.exit(1)
+                except Exception as e:
+                    print(f"Error reading grid file: {e}")
+                    sys.exit(1)
+            else:
+                print("Error: --grid requires a filename")
+                sys.exit(1)
+
         if "--help" in args or "-h" in args:
-            print("Usage: python3 ark_ranger.py [--greedy] [--timeout SECONDS] [--colorblind] shape1[:qty] shape2[:qty] ...")
+            print("Usage: python3 ark_ranger.py [--greedy] [--timeout SECONDS] [--colorblind] [--grid FILE] shape1[:qty] shape2[:qty] ...")
             print(f"\nAvailable shapes: {', '.join(sorted(SHAPES.keys()))}")
             print("\nExamples:")
             print("  python3 ark_ranger.py shotgun:3 dual_pistols:2 buffs square:4")
             print("  python3 ark_ranger.py --greedy blade:2 machine:3 fire corner:5")
             print("  python3 ark_ranger.py --timeout 30 blade:2 machine:3")
             print("  python3 ark_ranger.py --colorblind shotgun:3 square:4")
+            print("  python3 ark_ranger.py --grid my_level.txt shotgun:3 blade:2")
             print("\nFlags:")
             print("  --greedy          Use fast greedy heuristic (may not find optimal solution)")
             print("                    Default is backtracking (thorough, finds valid arrangements)")
             print("  --timeout SECS    Max seconds for backtracking (default: 30)")
             print("  --colorblind      Use colorblind-friendly palette")
+            print("  --grid FILE       Use a custom grid layout from a text file")
+            print("                    '#' or 'X' = valid cell, '.' = blocked cell")
+            print("                    Default is a 9x9 square grid")
             sys.exit(0)
 
         # Validate shape names
@@ -596,15 +704,19 @@ if __name__ == "__main__":
         total_cells = sum(len(SHAPES[s]) for s in shape_list)
 
         # Check if pieces exceed grid capacity
-        if total_cells > 81:
-            print(f"Error: Total cells ({total_cells}) exceed the 9x9 grid capacity (81).")
-            print(f"Remove {total_cells - 81} cells worth of shapes to fit.")
+        if layout:
+            max_cells = sum(1 for col in layout for cell in col if cell)
+        else:
+            max_cells = 81
+        if total_cells > max_cells:
+            print(f"Error: Total cells ({total_cells}) exceed the grid capacity ({max_cells}).")
+            print(f"Remove {total_cells - max_cells} cells worth of shapes to fit.")
             sys.exit(1)
         print(f"Packing {len(shape_list)} shapes ({total_cells} cells) using {strategy} strategy...\n")
 
-        result = pack_shapes(shape_list, strategy=strategy, timeout=timeout)
+        result = pack_shapes(shape_list, strategy=strategy, timeout=timeout, layout=layout)
         print(result.display_pretty(colorblind=colorblind))
-        print(f"\nCells filled: {result.cells_filled()} / 81")
+        print(f"\nCells filled: {result.cells_filled()} / {result._valid_cells}")
         print(f"Pieces placed: {len(result.placements)} / {len(shape_list)}")
 
         if len(result.placements) < len(shape_list):
