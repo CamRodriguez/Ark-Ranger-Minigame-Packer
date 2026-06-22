@@ -146,33 +146,35 @@ def load_grid_layout(filepath: str) -> List[List[bool]]:
 
 class Grid:
     """A grid using math-style (x, y) coordinates with (0,0) at bottom-left.
-    Supports custom layouts with blocked cells."""
+    Supports custom layouts with blocked cells. Optimized with tracked empty cells."""
 
     def __init__(self, layout: Optional[List[List[bool]]] = None, size: int = 9):
         if layout:
             self.width = len(layout)
             self.height = len(layout[0])
-            # cells[x][y]: 0 = empty, BLOCKED = not part of grid, positive int = shape ID
             self.cells = [[0] * self.height for _ in range(self.width)]
             self._valid_cells = 0
-            for x in range(self.width):
-                for y in range(self.height):
+            self._empty_cells = []  # sorted list of empty (x,y) for fast lookup
+            for y in range(self.height):
+                for x in range(self.width):
                     if not layout[x][y]:
                         self.cells[x][y] = BLOCKED
                     else:
                         self._valid_cells += 1
+                        self._empty_cells.append((x, y))
         else:
             self.width = size
             self.height = size
             self.cells = [[0] * self.height for _ in range(self.width)]
             self._valid_cells = size * size
+            self._empty_cells = [(x, y) for y in range(size) for x in range(size)]
 
-        self.placements = []  # list of (shape_name, rotation_idx, x, y, shape_id)
+        self.placements = []
         self.next_id = 1
         self._filled = 0
-        self._shape_cells = {}  # shape_id -> list of (x, y) for fast removal
+        self._shape_cells = {}
+        self._empty_set = set(self._empty_cells)  # O(1) membership check
 
-    # Keep SIZE as a property for backward compatibility in solver
     @property
     def SIZE(self):
         return max(self.width, self.height)
@@ -196,6 +198,7 @@ class Grid:
             x, y = ox + dx, oy + dy
             self.cells[x][y] = shape_id
             coords.append((x, y))
+            self._empty_set.discard((x, y))
         self._shape_cells[shape_id] = coords
         self._filled += len(shape)
         self.placements.append((name, rot, ox, oy, shape_id))
@@ -206,8 +209,38 @@ class Grid:
         coords = self._shape_cells.pop(shape_id)
         for x, y in coords:
             self.cells[x][y] = 0
+            self._empty_set.add((x, y))
         self._filled -= len(coords)
-        self.placements.pop()  # backtracking always removes the last placed
+        self.placements.pop()
+
+    def first_empty(self) -> Optional[Coord]:
+        """Find the first empty cell (bottom-to-top, left-to-right)."""
+        # Scan in order since set is unordered
+        for y in range(self.height):
+            for x in range(self.width):
+                if self.cells[x][y] == 0:
+                    return (x, y)
+        return None
+
+    def snapshot(self) -> Tuple:
+        """Lightweight snapshot of grid state for best-solution tracking."""
+        cells_copy = [row[:] for row in self.cells]
+        placements_copy = list(self.placements)
+        return (cells_copy, placements_copy, self._filled, dict(self._shape_cells))
+
+    def restore_snapshot(self, snap: Tuple):
+        """Restore grid from a snapshot."""
+        cells_copy, placements_copy, filled, shape_cells = snap
+        self.cells = [row[:] for row in cells_copy]
+        self.placements = list(placements_copy)
+        self._filled = filled
+        self._shape_cells = {k: list(v) for k, v in shape_cells.items()}
+        # Rebuild empty set
+        self._empty_set = set()
+        for y in range(self.height):
+            for x in range(self.width):
+                if self.cells[x][y] == 0:
+                    self._empty_set.add((x, y))
 
     def cells_filled(self) -> int:
         """Count how many cells are occupied."""
@@ -398,14 +431,6 @@ class Grid:
         return "\n".join(lines)
 
 
-def find_first_empty(grid: Grid) -> Optional[Coord]:
-    """Find the first empty cell scanning bottom-to-top, left-to-right."""
-    for y in range(grid.height):
-        for x in range(grid.width):
-            if grid.cells[x][y] == 0:
-                return (x, y)
-    return None
-
 
 def solve(grid: Grid, shapes_to_place: List[Tuple[str, List[Shape]]],
           best: List[int], best_grid: List[Optional['Grid']],
@@ -442,7 +467,7 @@ def solve(grid: Grid, shapes_to_place: List[Tuple[str, List[Shape]]],
     current_filled = grid.cells_filled()
     if current_filled > best[0]:
         best[0] = current_filled
-        best_grid[0] = copy.deepcopy(grid)
+        best_grid[0] = grid.snapshot()
 
     if not shapes_to_place:
         if not quiet:
@@ -450,14 +475,7 @@ def solve(grid: Grid, shapes_to_place: List[Tuple[str, List[Shape]]],
         return True
 
     # Find the first empty cell (bottom-to-top, left-to-right)
-    target = None
-    for y in range(grid.height):
-        for x in range(grid.width):
-            if grid.cells[x][y] == 0:
-                target = (x, y)
-                break
-        if target:
-            break
+    target = grid.first_empty()
 
     if target is None:
         # No empty cells left — but check if all shapes are placed
@@ -598,7 +616,8 @@ def pack_shapes(shape_list: List[str], strategy: str = "greedy", timeout: float 
             else:
                 if not quiet:
                     print(f"\r  Exhausted search after {calls[0]:,} attempts. Best: {best[0]} cells filled.     ")
-            grid = best_grid[0] if best_grid[0] else grid
+            if best_grid[0]:
+                grid.restore_snapshot(best_grid[0])
     else:
         greedy_place(grid, shapes_to_place)
 
@@ -782,6 +801,16 @@ def find_best_expansion(layout: List[List[bool]], shape_list: List[str],
 
     print("  Generating possible expansions...")
     expansions = generate_connected_expansions(layout, num_tiles=6)
+
+    # Pre-filter: skip expansions where total grid capacity < total shape cells
+    total_shape_cells = sum(len(SHAPES[s]) for s in shape_list if s in SHAPES)
+    current_valid = sum(1 for x in range(len(layout)) for y in range(len(layout[0])) if layout[x][y])
+    filtered = []
+    for exp in expansions:
+        if current_valid + 6 >= total_shape_cells:
+            filtered.append(exp)
+    expansions = filtered if filtered else expansions
+
     print(f"  Found {len(expansions)} valid expansions. Testing each...\n")
 
     if not expansions:
@@ -796,6 +825,9 @@ def find_best_expansion(layout: List[List[bool]], shape_list: List[str],
         else:
             print("  No valid expansions found (no adjacent cells available within 9x9 bounds).")
         return None
+
+    # Determine max possible score for early termination
+    max_possible_score = len(expand_targets) if expand_targets else None
 
     best_primary = -1
     best_tiebreaker = -1
@@ -823,7 +855,13 @@ def find_best_expansion(layout: List[List[bool]], shape_list: List[str],
                 best_expansion = expansion
                 best_grid = result
 
-    print(f"\r  Tested {len(expansions)} expansions.                                              ")
+            # Early termination: if we've fit all target weapons, can't do better
+            if max_possible_score is not None and best_primary >= max_possible_score:
+                print(f"\r  Found optimal expansion at {i + 1}/{len(expansions)} (fits all targets).          ")
+                break
+
+    else:
+        print(f"\r  Tested {len(expansions)} expansions.                                              ")
 
     if best_expansion:
         return (best_expansion, best_grid, best_primary)
