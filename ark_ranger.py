@@ -236,9 +236,10 @@ class Grid:
         lines.append("y")
         return "\n".join(lines)
 
-    def display_pretty(self, colorblind: bool = False) -> str:
+    def display_pretty(self, colorblind: bool = False, highlight_cells: Optional[List[Coord]] = None) -> str:
         """Display with colored blocks. Each shape instance gets a unique color
-        ensuring adjacent pieces are always visually distinct."""
+        ensuring adjacent pieces are always visually distinct.
+        highlight_cells: list of (x,y) coords to mark as expansion tiles."""
         if colorblind:
             COLORS = [
                 "\033[48;5;24m",   # dark blue
@@ -347,11 +348,22 @@ class Grid:
                 else:
                     id_to_color[shape_id] = preferred  # fallback
 
-        def colored_cell(shape_id):
+        highlight_set = set(highlight_cells) if highlight_cells else set()
+
+        def colored_cell(shape_id, x, y):
+            is_highlight = (x, y) in highlight_set
             if shape_id <= 0:
+                if is_highlight:
+                    # Empty expansion tile — bright white with "++" marker
+                    return "\033[48;5;255m\033[30m++\033[0m"
                 if shape_id == BLOCKED:
-                    return "  "  # blocked cells render as empty space
+                    return "  "
                 return "  "
+            if is_highlight:
+                # Filled expansion tile — colored with dots to mark it
+                color_idx = id_to_color[shape_id]
+                bg = COLORS[color_idx % len(COLORS)]
+                return f"{bg}\033[97m░░{RESET}"
             color_idx = id_to_color[shape_id]
             bg = COLORS[color_idx % len(COLORS)]
             return f"{bg}  {RESET}"
@@ -368,7 +380,7 @@ class Grid:
         for y in range(height - 1, -1, -1):
             row_str = f"{y + 1}  "
             for x in range(width):
-                row_str += colored_cell(self.cells[x][y])
+                row_str += colored_cell(self.cells[x][y], x, y)
             lines.append(row_str)
 
         lines.append("")
@@ -379,6 +391,9 @@ class Grid:
             color_idx = name_to_base[name]
             bg = COLORS[color_idx % len(COLORS)]
             lines.append(f"   {bg}  {RESET} = {name}")
+        if highlight_cells:
+            lines.append(f"   \033[48;5;255m\033[30m++\033[0m = new expansion tile (empty)")
+            lines.append(f"   ░░ = new expansion tile (filled)")
 
         return "\n".join(lines)
 
@@ -395,7 +410,7 @@ def find_first_empty(grid: Grid) -> Optional[Coord]:
 def solve(grid: Grid, shapes_to_place: List[Tuple[str, List[Shape]]],
           best: List[int], best_grid: List[Optional['Grid']],
           calls: List[int] = None, max_attempts: int = 7_000_000,
-          timeout: float = 30, start_time: float = None) -> bool:
+          timeout: float = 30, start_time: float = None, quiet: bool = False) -> bool:
     """
     Backtracking solver with constraint propagation.
     
@@ -418,9 +433,11 @@ def solve(grid: Grid, shapes_to_place: List[Tuple[str, List[Shape]]],
     if calls[0] % 1000 == 0:
         elapsed = time.time() - start_time
         if elapsed >= timeout:
-            print(f"\r  Timeout ({timeout}s) reached after {calls[0]:,} attempts.                          ")
+            if not quiet:
+                print(f"\r  Timeout ({timeout}s) reached after {calls[0]:,} attempts.                          ")
             return False
-        print(f"\r  Searching... {calls[0]:,} attempts | best so far: {best[0]} cells | {elapsed:.0f}s elapsed", end="", flush=True)
+        if not quiet:
+            print(f"\r  Searching... {calls[0]:,} attempts | best so far: {best[0]} cells | {elapsed:.0f}s elapsed", end="", flush=True)
 
     current_filled = grid.cells_filled()
     if current_filled > best[0]:
@@ -428,7 +445,8 @@ def solve(grid: Grid, shapes_to_place: List[Tuple[str, List[Shape]]],
         best_grid[0] = copy.deepcopy(grid)
 
     if not shapes_to_place:
-        print(f"\r  Solution found after {calls[0]:,} attempts ({time.time() - start_time:.1f}s).                          ")
+        if not quiet:
+            print(f"\r  Solution found after {calls[0]:,} attempts ({time.time() - start_time:.1f}s).                          ")
         return True
 
     # Find the first empty cell (bottom-to-top, left-to-right)
@@ -444,7 +462,8 @@ def solve(grid: Grid, shapes_to_place: List[Tuple[str, List[Shape]]],
     if target is None:
         # No empty cells left — but check if all shapes are placed
         if not shapes_to_place:
-            print(f"\r  Solution found after {calls[0]:,} attempts ({time.time() - start_time:.1f}s).                          ")
+            if not quiet:
+                print(f"\r  Solution found after {calls[0]:,} attempts ({time.time() - start_time:.1f}s).                          ")
             return True
         return False
 
@@ -469,7 +488,7 @@ def solve(grid: Grid, shapes_to_place: List[Tuple[str, List[Shape]]],
                     shape_can_cover = True
                     any_shape_covered = True
                     shape_id = grid.place(rot_shape, ox, oy, name, 0)
-                    if solve(grid, remaining, best, best_grid, calls, max_attempts, timeout, start_time):
+                    if solve(grid, remaining, best, best_grid, calls, max_attempts, timeout, start_time, quiet):
                         return True
                     grid.remove(shape_id)
                     if calls[0] > max_attempts:
@@ -486,7 +505,7 @@ def solve(grid: Grid, shapes_to_place: List[Tuple[str, List[Shape]]],
         if grid._valid_cells < grid.width * grid.height:
             old_val = grid.cells[tx][ty]
             grid.cells[tx][ty] = BLOCKED
-            if solve(grid, shapes_to_place, best, best_grid, calls, max_attempts, timeout, start_time):
+            if solve(grid, shapes_to_place, best, best_grid, calls, max_attempts, timeout, start_time, quiet):
                 grid.cells[tx][ty] = old_val
                 return True
             grid.cells[tx][ty] = old_val
@@ -537,7 +556,7 @@ def greedy_place(grid: Grid, shapes_to_place: List[Tuple[str, List[Shape]]]) -> 
 
 
 def pack_shapes(shape_list: List[str], strategy: str = "greedy", timeout: float = 30,
-                layout: Optional[List[List[bool]]] = None) -> Grid:
+                layout: Optional[List[List[bool]]] = None, quiet: bool = False) -> Grid:
     """
     Main entry point. Takes a list of shape names and packs them into a grid.
     Each shape will be tried in all valid rotations.
@@ -571,12 +590,14 @@ def pack_shapes(shape_list: List[str], strategy: str = "greedy", timeout: float 
         # Sort largest first for better pruning
         shapes_to_place.sort(key=lambda x: len(x[1][0]), reverse=True)
         solved = solve(grid, shapes_to_place, best, best_grid, calls,
-                       max_attempts=7_000_000, timeout=timeout, start_time=time.time())
+                       max_attempts=7_000_000, timeout=timeout, start_time=time.time(), quiet=quiet)
         if not solved:
             if calls[0] > 7_000_000:
-                print(f"\r  Max attempts (7,000,000) reached. Best: {best[0]} cells filled.                ")
+                if not quiet:
+                    print(f"\r  Max attempts (7,000,000) reached. Best: {best[0]} cells filled.                ")
             else:
-                print(f"\r  Exhausted search after {calls[0]:,} attempts. Best: {best[0]} cells filled.     ")
+                if not quiet:
+                    print(f"\r  Exhausted search after {calls[0]:,} attempts. Best: {best[0]} cells filled.     ")
             grid = best_grid[0] if best_grid[0] else grid
     else:
         greedy_place(grid, shapes_to_place)
@@ -593,6 +614,296 @@ def pack_shapes(shape_list: List[str], strategy: str = "greedy", timeout: float 
                     jewels.pop()
 
     return grid
+
+
+# --- Expansion Logic ---
+
+def get_expansion_candidates(layout: List[List[bool]], max_width: int = 9, max_height: int = 9) -> Set[Coord]:
+    """Find all cells adjacent to the current grid that are within 9x9 bounds."""
+    width = len(layout)
+    height = len(layout[0])
+    candidates = set()
+
+    for x in range(width):
+        for y in range(height):
+            if layout[x][y]:
+                # Check all 4 neighbors
+                for dx, dy in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
+                    nx, ny = x + dx, y + dy
+                    # Within current bounds but not already valid
+                    if 0 <= nx < width and 0 <= ny < height and not layout[nx][ny]:
+                        candidates.add((nx, ny))
+                    # Expanding beyond current bounds (within 9x9)
+                    elif nx == width and width < max_width:
+                        candidates.add((nx, ny))
+                    elif nx == -1 and width < max_width:
+                        candidates.add((nx, ny))
+                    elif ny == height and height < max_height:
+                        candidates.add((nx, ny))
+                    elif ny == -1 and height < max_height:
+                        candidates.add((nx, ny))
+
+    # Filter to valid coordinate range after potential expansion
+    valid = set()
+    for x, y in candidates:
+        # Remap: if negative, we'd shift the grid. For simplicity,
+        # only allow expansion in positive direction and within bounds.
+        if 0 <= x < max_width and 0 <= y < max_height:
+            valid.add((x, y))
+
+    return valid
+
+
+def generate_connected_expansions(layout: List[List[bool]], num_tiles: int = 6,
+                                   max_width: int = 9, max_height: int = 9) -> List[List[Coord]]:
+    """
+    Generate all connected groups of num_tiles cells that attach to the existing grid.
+    Uses BFS/DFS to grow connected polyominos from the border of the grid.
+    """
+    candidates = get_expansion_candidates(layout, max_width, max_height)
+    if not candidates:
+        return []
+
+    width = len(layout)
+    height = len(layout[0])
+
+    def is_adjacent_to_grid_or_expansion(cell, expansion_set):
+        """Check if a cell is adjacent to the existing grid or current expansion."""
+        x, y = cell
+        for dx, dy in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
+            nx, ny = x + dx, y + dy
+            if (nx, ny) in expansion_set:
+                return True
+            if 0 <= nx < width and 0 <= ny < height and layout[nx][ny]:
+                return True
+        return False
+
+    def is_connected_to_grid(cell):
+        """Check if a cell is directly adjacent to the existing grid."""
+        x, y = cell
+        for dx, dy in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
+            nx, ny = x + dx, y + dy
+            if 0 <= nx < width and 0 <= ny < height and layout[nx][ny]:
+                return True
+        return False
+
+    # Generate expansions using DFS
+    results = set()
+
+    def dfs(current_expansion: List[Coord], remaining: int, min_candidate_idx: int):
+        if remaining == 0:
+            key = tuple(sorted(current_expansion))
+            results.add(key)
+            return
+
+        expansion_set = set(current_expansion)
+        # Find candidates adjacent to current expansion or grid
+        sorted_candidates = sorted(candidates - expansion_set)
+
+        for i, cell in enumerate(sorted_candidates):
+            if i < min_candidate_idx:
+                continue
+            if is_adjacent_to_grid_or_expansion(cell, expansion_set):
+                current_expansion.append(cell)
+                dfs(current_expansion, remaining - 1, i + 1)
+                current_expansion.pop()
+
+    # Start from each candidate adjacent to the grid
+    sorted_all = sorted(candidates)
+    for i, start in enumerate(sorted_all):
+        if is_connected_to_grid(start):
+            dfs([start], num_tiles - 1, i + 1)
+
+    return [list(exp) for exp in results]
+
+
+def largest_connected_empty(grid: Grid) -> int:
+    """Find the size of the largest connected group of empty cells."""
+    visited = set()
+    largest = 0
+
+    for x in range(grid.width):
+        for y in range(grid.height):
+            if grid.cells[x][y] == 0 and (x, y) not in visited:
+                # BFS to find connected empty region
+                size = 0
+                queue = [(x, y)]
+                visited.add((x, y))
+                while queue:
+                    cx, cy = queue.pop(0)
+                    size += 1
+                    for dx, dy in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
+                        nx, ny = cx + dx, cy + dy
+                        if (0 <= nx < grid.width and 0 <= ny < grid.height
+                                and grid.cells[nx][ny] == 0
+                                and (nx, ny) not in visited):
+                            visited.add((nx, ny))
+                            queue.append((nx, ny))
+                largest = max(largest, size)
+
+    return largest
+
+
+def expand_layout(layout: List[List[bool]], expansion: List[Coord]) -> List[List[bool]]:
+    """Create a new layout with the expansion tiles added."""
+    # Determine new bounds
+    all_x = [x for x in range(len(layout))] + [x for x, y in expansion]
+    all_y = [y for y in range(len(layout[0]))] + [y for x, y in expansion]
+    new_width = max(all_x) + 1
+    new_height = max(all_y) + 1
+
+    # Build new layout
+    new_layout = [[False] * new_height for _ in range(new_width)]
+
+    # Copy existing
+    for x in range(len(layout)):
+        for y in range(len(layout[0])):
+            if layout[x][y]:
+                new_layout[x][y] = True
+
+    # Add expansion
+    for x, y in expansion:
+        new_layout[x][y] = True
+
+    return new_layout
+
+
+def score_expansion(result: Grid, expand_targets: List[str]) -> Tuple[int, int]:
+    """
+    Score an expansion result.
+    If expand_targets is provided: score = how many target weapons fit in remaining space.
+    Tiebreaker = largest connected empty group after fitting targets.
+    If no targets: score = largest connected empty group.
+    Returns (primary_score, tiebreaker_score).
+    """
+    if not expand_targets:
+        return (largest_connected_empty(result), 0)
+
+    # Try to fit as many target weapons as possible in the remaining empty space
+    # Build a mini grid from just the empty cells of result
+    target_shapes = []
+    for name in expand_targets:
+        if name in SHAPES:
+            target_shapes.append(name)
+
+    # Greedy-fit targets into remaining space
+    remaining_targets = list(target_shapes)
+    test_grid = copy.deepcopy(result)
+
+    placed_count = 0
+    # Try placing each target weapon greedily
+    for name in remaining_targets:
+        rotations = SHAPE_ROTATIONS[name]
+        placed = False
+        for rot_shape in rotations:
+            for y in range(test_grid.height):
+                for x in range(test_grid.width):
+                    if test_grid.can_place(rot_shape, x, y):
+                        test_grid.place(rot_shape, x, y, name, 0)
+                        placed_count += 1
+                        placed = True
+                        break
+                if placed:
+                    break
+            if placed:
+                break
+
+    # Tiebreaker: largest empty group after fitting targets
+    tiebreaker = largest_connected_empty(test_grid)
+    return (placed_count, tiebreaker)
+
+
+def find_best_expansion(layout: List[List[bool]], shape_list: List[str],
+                        timeout_per_solve: float = 5,
+                        expand_targets: Optional[List[str]] = None) -> Optional[Tuple[List[Coord], Grid, int]]:
+    """
+    Try all valid 6-tile expansions, solve each, and return the best one.
+
+    Scoring:
+    - If expand_targets provided: best = fits most target weapons in remaining space.
+    - If no targets: best = largest connected empty group after packing.
+
+    Returns: (expansion_cells, solved_grid, score) or None
+    """
+    if expand_targets is None:
+        expand_targets = []
+
+    print("  Generating possible expansions...")
+    expansions = generate_connected_expansions(layout, num_tiles=6)
+    print(f"  Found {len(expansions)} valid expansions. Testing each...\n")
+
+    if not expansions:
+        print("  No valid expansions found (grid may already be 9x9).")
+        return None
+
+    best_primary = -1
+    best_tiebreaker = -1
+    best_expansion = None
+    best_grid = None
+
+    for i, expansion in enumerate(expansions):
+        if (i + 1) % 10 == 0 or i == 0:
+            if expand_targets:
+                print(f"\r  Testing expansion {i + 1}/{len(expansions)} | best: fits {best_primary} target weapon(s)", end="", flush=True)
+            else:
+                print(f"\r  Testing expansion {i + 1}/{len(expansions)} | best: {best_primary} empty grouped", end="", flush=True)
+
+        new_layout = expand_layout(layout, expansion)
+        result = pack_shapes(shape_list, strategy="backtrack",
+                            timeout=timeout_per_solve, layout=new_layout, quiet=True)
+
+        # Only consider if all pieces were placed
+        expected_pieces = len(shape_list)
+        if len(result.placements) == expected_pieces:
+            primary, tiebreaker = score_expansion(result, expand_targets)
+            if primary > best_primary or (primary == best_primary and tiebreaker > best_tiebreaker):
+                best_primary = primary
+                best_tiebreaker = tiebreaker
+                best_expansion = expansion
+                best_grid = result
+
+    print(f"\r  Tested {len(expansions)} expansions.                                              ")
+
+    if best_expansion:
+        return (best_expansion, best_grid, best_primary)
+    else:
+        # No expansion could fit all pieces — return the one with most pieces placed
+        print("  No expansion could fit all pieces. Returning best partial...")
+        best_filled = -1
+        for expansion in expansions:
+            new_layout = expand_layout(layout, expansion)
+            result = pack_shapes(shape_list, strategy="backtrack",
+                                timeout=timeout_per_solve, layout=new_layout, quiet=True)
+            filled = result.cells_filled()
+            if filled > best_filled:
+                best_filled = filled
+                best_expansion = expansion
+                best_grid = result
+
+        score = 0
+        if best_grid:
+            score = score_expansion(best_grid, expand_targets)[0]
+        return (best_expansion, best_grid, score) if best_expansion else None
+
+
+def save_grid_layout(filepath: str, layout: List[List[bool]]):
+    """
+    Save a grid layout to a text file.
+    '#' = valid cell, '.' = blocked cell.
+    Written top-to-bottom (first line = highest y row).
+    """
+    width = len(layout)
+    height = len(layout[0])
+
+    lines = []
+    for y in range(height - 1, -1, -1):  # top row first
+        row = ""
+        for x in range(width):
+            row += "#" if layout[x][y] else "."
+        lines.append(row)
+
+    with open(filepath, 'w') as f:
+        f.write("\n".join(lines) + "\n")
 
 
 # --- CLI ---
@@ -651,6 +962,29 @@ if __name__ == "__main__":
             else:
                 print("Error: --grid requires a filename")
                 sys.exit(1)
+
+        expand = False
+        expand_targets = []
+        if "--expand" in args:
+            idx = args.index("--expand")
+            args.pop(idx)  # remove --expand
+            # Next arg (if present and not a flag) is a comma-separated list of target weapons
+            if idx < len(args) and not args[idx].startswith("--") and ":" not in args[idx]:
+                target_arg = args.pop(idx)
+                for name in target_arg.split(","):
+                    name = name.strip()
+                    if name and name in SHAPES:
+                        expand_targets.append(name)
+                    elif name:
+                        print(f"Error: Unknown expand target weapon '{name}'")
+                        print(f"Available shapes: {', '.join(sorted(SHAPES.keys()))}")
+                        sys.exit(1)
+            expand = True
+            if not layout:
+                print("Error: --expand requires --grid to specify the current grid layout.")
+                sys.exit(1)
+            if not expand_targets:
+                print("  (No target weapons specified, optimizing for largest empty group)\n")
 
         if "--help" in args or "-h" in args:
             print("Usage: python3 ark_ranger.py [--greedy] [--timeout SECONDS] [--colorblind] [--grid FILE] shape1[:qty] shape2[:qty] ...")
@@ -714,19 +1048,51 @@ if __name__ == "__main__":
             sys.exit(1)
         print(f"Packing {len(shape_list)} shapes ({total_cells} cells) using {strategy} strategy...\n")
 
-        result = pack_shapes(shape_list, strategy=strategy, timeout=timeout, layout=layout)
-        print(result.display_pretty(colorblind=colorblind))
-        print(f"\nCells filled: {result.cells_filled()} / {result._valid_cells}")
-        print(f"Pieces placed: {len(result.placements)} / {len(shape_list)}")
+        if expand:
+            result_data = find_best_expansion(layout, shape_list, timeout_per_solve=5,
+                                              expand_targets=expand_targets)
+            if result_data:
+                expansion, result, score = result_data
+                print(f"\n  Best expansion adds tiles at: {[(x+1, y+1) for x, y in expansion]}")
+                if expand_targets:
+                    print(f"  Can fit {score} additional target weapon(s): {', '.join(expand_targets)}")
+                else:
+                    print(f"  Largest connected empty group: {score} cells")
+                print()
+                print(result.display_pretty(colorblind=colorblind, highlight_cells=expansion))
+                print(f"\nCells filled: {result.cells_filled()} / {result._valid_cells}")
+                print(f"Pieces placed: {len(result.placements)} / {len(shape_list)}")
 
-        if len(result.placements) < len(shape_list):
-            placed_names = [p[0] for p in result.placements]
-            unplaced = list(shape_list)
-            for name in placed_names:
-                unplaced.remove(name)
-            print(f"\n⚠️  Could not fit all pieces! {len(unplaced)} shape(s) unplaced:")
-            for name in unplaced:
-                print(f"  - {name}")
+                if len(result.placements) < len(shape_list):
+                    placed_names = [p[0] for p in result.placements]
+                    unplaced = list(shape_list)
+                    for name in placed_names:
+                        unplaced.remove(name)
+                    print(f"\n⚠️  Could not fit all pieces! {len(unplaced)} shape(s) unplaced:")
+                    for name in unplaced:
+                        print(f"  - {name}")
+
+                # Update the grid file with the expanded layout
+                new_layout = expand_layout(layout, expansion)
+                save_grid_layout(grid_file, new_layout)
+                print(f"\n  ✓ Updated '{grid_file}' with the expanded grid.")
+            else:
+                print("  Could not find a valid expansion.")
+        else:
+            result = pack_shapes(shape_list, strategy=strategy, timeout=timeout, layout=layout)
+            print(result.display_pretty(colorblind=colorblind))
+
+            print(f"\nCells filled: {result.cells_filled()} / {result._valid_cells}")
+            print(f"Pieces placed: {len(result.placements)} / {len(shape_list)}")
+
+            if len(result.placements) < len(shape_list):
+                placed_names = [p[0] for p in result.placements]
+                unplaced = list(shape_list)
+                for name in placed_names:
+                    unplaced.remove(name)
+                print(f"\n⚠️  Could not fit all pieces! {len(unplaced)} shape(s) unplaced:")
+                for name in unplaced:
+                    print(f"  - {name}")
     else:
         print("Usage: python3 ark_ranger.py [--greedy] [--timeout SECONDS] [--colorblind] shape1[:qty] shape2[:qty] ...")
         print(f"\nAvailable shapes: {', '.join(sorted(SHAPES.keys()))}")
