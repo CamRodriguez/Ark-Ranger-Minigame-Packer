@@ -785,7 +785,16 @@ def find_best_expansion(layout: List[List[bool]], shape_list: List[str],
     print(f"  Found {len(expansions)} valid expansions. Testing each...\n")
 
     if not expansions:
-        print("  No valid expansions found (grid may already be 9x9).")
+        # Check if grid is fully 9x9
+        width = len(layout)
+        height = len(layout[0])
+        valid_cells = sum(1 for x in range(width) for y in range(height) if layout[x][y])
+        if width >= 9 and height >= 9 and valid_cells == 81:
+            print("  🎉 MAX GRID ACHIEVED! Your 9x9 grid is fully unlocked.")
+            print("  You've reached the final form. No more expanding — just pure packing power.")
+            print("  Go fill that grid, Ranger. 💪")
+        else:
+            print("  No valid expansions found (no adjacent cells available within 9x9 bounds).")
         return None
 
     best_primary = -1
