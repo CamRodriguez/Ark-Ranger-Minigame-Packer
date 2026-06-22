@@ -196,28 +196,29 @@ class Grid:
                 "\033[48;5;173m",  # peach
             ]
         else:
-            # Soft professional palette — ordered for maximum contrast between neighbors
+            # Muted matte palette — ordered to maximize contrast between adjacent indices
+            # Alternates: dark/light, warm/cool so any two neighbors are distinct
             COLORS = [
-                "\033[48;5;67m",   # steel blue
-                "\033[48;5;173m",  # peach
-                "\033[48;5;108m",  # sage green
-                "\033[48;5;96m",   # mauve
-                "\033[48;5;137m",  # camel
-                "\033[48;5;60m",   # charcoal blue
-                "\033[48;5;174m",  # dusty rose
-                "\033[48;5;71m",   # fern green
-                "\033[48;5;131m",  # terracotta
-                "\033[48;5;73m",   # soft teal
-                "\033[48;5;168m",  # soft pink
-                "\033[48;5;143m",  # olive
-                "\033[48;5;110m",  # powder blue
-                "\033[48;5;179m",  # wheat
-                "\033[48;5;95m",   # plum
-                "\033[48;5;151m",  # mint
-                "\033[48;5;138m",  # warm gray
-                "\033[48;5;66m",   # slate blue
-                "\033[48;5;180m",  # sand
-                "\033[48;5;103m",  # lavender gray
+                "\033[48;5;124m",  # muted red (dark warm)
+                "\033[48;5;37m",   # muted cyan (light cool)
+                "\033[48;5;136m",  # muted gold (light warm)
+                "\033[48;5;24m",   # muted dark blue (dark cool)
+                "\033[48;5;34m",   # muted green (medium cool)
+                "\033[48;5;168m",  # muted pink (light warm)
+                "\033[48;5;22m",   # muted dark green (dark cool)
+                "\033[48;5;172m",  # muted orange (light warm)
+                "\033[48;5;55m",   # muted indigo (dark cool)
+                "\033[48;5;178m",  # muted yellow (light warm)
+                "\033[48;5;97m",   # muted purple (dark warm)
+                "\033[48;5;36m",   # muted sea green (light cool)
+                "\033[48;5;88m",   # muted dark red (dark warm)
+                "\033[48;5;143m",  # muted khaki (light warm)
+                "\033[48;5;25m",   # muted blue (dark cool)
+                "\033[48;5;133m",  # muted magenta (medium warm)
+                "\033[48;5;28m",   # muted forest green (dark cool)
+                "\033[48;5;94m",   # muted brown (medium warm)
+                "\033[48;5;67m",   # muted sky blue (medium cool)
+                "\033[48;5;125m",  # muted deep pink (dark warm)
             ]
         RESET = "\033[0m"
 
@@ -248,7 +249,7 @@ class Grid:
                 base_idx += 1
 
         # Graph coloring: assign colors to each piece, preferring its type's base color
-        # but shifting if a neighbor already has that color
+        # but picking the most distant available color if there's a conflict
         id_to_color = {}
         id_to_name = {}
         for name, _, _, _, shape_id in self.placements:
@@ -262,12 +263,23 @@ class Grid:
             if preferred not in used_colors:
                 id_to_color[shape_id] = preferred
             else:
-                # Find the nearest available color
-                for offset in range(1, len(COLORS)):
-                    candidate = (preferred + offset) % len(COLORS)
-                    if candidate not in used_colors:
-                        id_to_color[shape_id] = candidate
-                        break
+                # Pick the color with maximum distance from all used neighbor colors
+                num_colors = len(COLORS)
+                best_candidate = None
+                best_min_dist = -1
+                for candidate in range(num_colors):
+                    if candidate in used_colors:
+                        continue
+                    # Distance = minimum gap to any used color (wrapping around)
+                    min_dist = min(
+                        min(abs(candidate - uc), num_colors - abs(candidate - uc))
+                        for uc in used_colors
+                    ) if used_colors else num_colors
+                    if min_dist > best_min_dist:
+                        best_min_dist = min_dist
+                        best_candidate = candidate
+                if best_candidate is not None:
+                    id_to_color[shape_id] = best_candidate
                 else:
                     id_to_color[shape_id] = preferred  # fallback
 
