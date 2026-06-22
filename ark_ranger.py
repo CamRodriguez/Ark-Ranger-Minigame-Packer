@@ -657,64 +657,16 @@ def get_expansion_candidates(layout: List[List[bool]], max_width: int = 9, max_h
 def generate_connected_expansions(layout: List[List[bool]], num_tiles: int = 6,
                                    max_width: int = 9, max_height: int = 9) -> List[List[Coord]]:
     """
-    Generate all connected groups of num_tiles cells that attach to the existing grid.
-    Uses BFS/DFS to grow connected polyominos from the border of the grid.
+    Generate all valid groups of num_tiles cells that are each adjacent to the existing grid.
+    Each tile just needs to touch the grid, not necessarily each other.
     """
     candidates = get_expansion_candidates(layout, max_width, max_height)
-    if not candidates:
+    if len(candidates) < num_tiles:
         return []
 
-    width = len(layout)
-    height = len(layout[0])
-
-    def is_adjacent_to_grid_or_expansion(cell, expansion_set):
-        """Check if a cell is adjacent to the existing grid or current expansion."""
-        x, y = cell
-        for dx, dy in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
-            nx, ny = x + dx, y + dy
-            if (nx, ny) in expansion_set:
-                return True
-            if 0 <= nx < width and 0 <= ny < height and layout[nx][ny]:
-                return True
-        return False
-
-    def is_connected_to_grid(cell):
-        """Check if a cell is directly adjacent to the existing grid."""
-        x, y = cell
-        for dx, dy in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
-            nx, ny = x + dx, y + dy
-            if 0 <= nx < width and 0 <= ny < height and layout[nx][ny]:
-                return True
-        return False
-
-    # Generate expansions using DFS
-    results = set()
-
-    def dfs(current_expansion: List[Coord], remaining: int, min_candidate_idx: int):
-        if remaining == 0:
-            key = tuple(sorted(current_expansion))
-            results.add(key)
-            return
-
-        expansion_set = set(current_expansion)
-        # Find candidates adjacent to current expansion or grid
-        sorted_candidates = sorted(candidates - expansion_set)
-
-        for i, cell in enumerate(sorted_candidates):
-            if i < min_candidate_idx:
-                continue
-            if is_adjacent_to_grid_or_expansion(cell, expansion_set):
-                current_expansion.append(cell)
-                dfs(current_expansion, remaining - 1, i + 1)
-                current_expansion.pop()
-
-    # Start from each candidate adjacent to the grid
-    sorted_all = sorted(candidates)
-    for i, start in enumerate(sorted_all):
-        if is_connected_to_grid(start):
-            dfs([start], num_tiles - 1, i + 1)
-
-    return [list(exp) for exp in results]
+    # Generate all combinations of num_tiles from candidates
+    from itertools import combinations
+    return [list(combo) for combo in combinations(sorted(candidates), num_tiles)]
 
 
 def largest_connected_empty(grid: Grid) -> int:

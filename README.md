@@ -76,9 +76,10 @@ The grid can be any shape — L-shaped, with holes, extensions off the side — 
 
 The `--expand` flag finds the best way to add 6 tiles to your current grid:
 
-- New tiles will be connected to each other
-- New tiles must attach to the existing grid
+- Each new tile must be adjacent to the existing grid (orthogonally)
+- New tiles don't need to be connected to each other
 - Grid cannot exceed 9x9 in any direction
+- After finding the best expansion, the grid file is automatically updated
 
 **Without targets** — optimizes for the largest connected empty group (most room for future weapons):
 ```bash
@@ -90,7 +91,12 @@ python3 ark_ranger.py --grid my_level.txt --expand shotgun:2 square:3
 python3 ark_ranger.py --grid my_level.txt --expand blade shotgun:2 square:3
 ```
 
-The output shows exactly where to add tiles with `++` markers on the grid and a `░░` pattern for expansion tiles that have weapons placed on them.
+**Multiple targets** (comma-separated):
+```bash
+python3 ark_ranger.py --grid my_level.txt --expand launcher,square shotgun:2 blade:3
+```
+
+The output shows exactly where to add tiles with `++` markers on the grid and a `░░` pattern for expansion tiles that have weapons placed on them. The grid file is updated automatically so you don't need to edit it manually.
 
 ## Available Shapes
 
