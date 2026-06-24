@@ -788,7 +788,9 @@ def find_best_expansion(layout: List[List[bool]], shape_list: List[str],
                         timeout_per_solve: float = 5,
                         expand_targets: Optional[List[str]] = None) -> Optional[Tuple[List[Coord], Grid, int]]:
     """
-    Try all valid 6-tile expansions, solve each, and return the best one.
+    Find the best 6-tile expansion using a two-phase approach:
+    Phase 1: Greedy-solve all expansions (fast screening)
+    Phase 2: Backtrack-solve only the top candidates (accurate)
 
     Scoring:
     - If expand_targets provided: best = fits most target weapons in remaining space.
@@ -811,10 +813,7 @@ def find_best_expansion(layout: List[List[bool]], shape_list: List[str],
             filtered.append(exp)
     expansions = filtered if filtered else expansions
 
-    print(f"  Found {len(expansions)} valid expansions. Testing each...\n")
-
     if not expansions:
-        # Check if grid is fully 9x9
         width = len(layout)
         height = len(layout[0])
         valid_cells = sum(1 for x in range(width) for y in range(height) if layout[x][y])
@@ -826,6 +825,38 @@ def find_best_expansion(layout: List[List[bool]], shape_list: List[str],
             print("  No valid expansions found (no adjacent cells available within 9x9 bounds).")
         return None
 
+    print(f"  Found {len(expansions)} valid expansions.")
+
+    # --- Phase 1: Greedy screening (fast) ---
+    print(f"  Phase 1: Greedy screening all {len(expansions)} expansions...")
+    greedy_scores = []
+    for i, expansion in enumerate(expansions):
+        if (i + 1) % 100 == 0:
+            print(f"\r    Screening {i + 1}/{len(expansions)}...", end="", flush=True)
+
+        new_layout = expand_layout(layout, expansion)
+        result = pack_shapes(shape_list, strategy="greedy", layout=new_layout, quiet=True)
+
+        pieces_placed = len(result.placements)
+        expected = len(shape_list)
+
+        if pieces_placed == expected:
+            primary, tiebreaker = score_expansion(result, expand_targets)
+            greedy_scores.append((primary, tiebreaker, i, expansion))
+        else:
+            # Partial placement — lower priority
+            greedy_scores.append((-1, pieces_placed, i, expansion))
+
+    print(f"\r    Screened {len(expansions)} expansions.                    ")
+
+    # Sort by score (best first)
+    greedy_scores.sort(key=lambda x: (x[0], x[1]), reverse=True)
+
+    # --- Phase 2: Backtrack the top candidates ---
+    TOP_N = 20
+    top_candidates = greedy_scores[:TOP_N]
+    print(f"  Phase 2: Backtracking top {len(top_candidates)} candidates...\n")
+
     # Determine max possible score for early termination
     max_possible_score = len(expand_targets) if expand_targets else None
 
@@ -834,18 +865,16 @@ def find_best_expansion(layout: List[List[bool]], shape_list: List[str],
     best_expansion = None
     best_grid = None
 
-    for i, expansion in enumerate(expansions):
-        if (i + 1) % 10 == 0 or i == 0:
-            if expand_targets:
-                print(f"\r  Testing expansion {i + 1}/{len(expansions)} | best: fits {best_primary} target weapon(s)", end="", flush=True)
-            else:
-                print(f"\r  Testing expansion {i + 1}/{len(expansions)} | best: {best_primary} empty grouped", end="", flush=True)
+    for rank, (greedy_primary, greedy_tie, idx, expansion) in enumerate(top_candidates):
+        if expand_targets:
+            print(f"\r    Solving candidate {rank + 1}/{len(top_candidates)} | best: fits {best_primary} target weapon(s)", end="", flush=True)
+        else:
+            print(f"\r    Solving candidate {rank + 1}/{len(top_candidates)} | best: {best_primary} empty grouped", end="", flush=True)
 
         new_layout = expand_layout(layout, expansion)
         result = pack_shapes(shape_list, strategy="backtrack",
                             timeout=timeout_per_solve, layout=new_layout, quiet=True)
 
-        # Only consider if all pieces were placed
         expected_pieces = len(shape_list)
         if len(result.placements) == expected_pieces:
             primary, tiebreaker = score_expansion(result, expand_targets)
@@ -855,34 +884,35 @@ def find_best_expansion(layout: List[List[bool]], shape_list: List[str],
                 best_expansion = expansion
                 best_grid = result
 
-            # Early termination: if we've fit all target weapons, can't do better
+            # Early termination
             if max_possible_score is not None and best_primary >= max_possible_score:
-                print(f"\r  Found optimal expansion at {i + 1}/{len(expansions)} (fits all targets).          ")
+                print(f"\r    Found optimal expansion (fits all targets).                              ")
                 break
 
-    else:
-        print(f"\r  Tested {len(expansions)} expansions.                                              ")
+    print(f"\r    Tested {len(top_candidates)} candidates.                                        ")
 
     if best_expansion:
         return (best_expansion, best_grid, best_primary)
     else:
-        # No expansion could fit all pieces — return the one with most pieces placed
-        print("  No expansion could fit all pieces. Returning best partial...")
-        best_filled = -1
-        for expansion in expansions:
+        # Fallback: if backtracking failed on top candidates, try more from greedy list
+        print("  No top candidate worked with backtracking. Trying more...")
+        for greedy_primary, greedy_tie, idx, expansion in greedy_scores[TOP_N:TOP_N+50]:
             new_layout = expand_layout(layout, expansion)
             result = pack_shapes(shape_list, strategy="backtrack",
                                 timeout=timeout_per_solve, layout=new_layout, quiet=True)
-            filled = result.cells_filled()
-            if filled > best_filled:
-                best_filled = filled
-                best_expansion = expansion
-                best_grid = result
+            if len(result.placements) == len(shape_list):
+                primary, tiebreaker = score_expansion(result, expand_targets)
+                return (expansion, result, primary)
 
-        score = 0
-        if best_grid:
-            score = score_expansion(best_grid, expand_targets)[0]
-        return (best_expansion, best_grid, score) if best_expansion else None
+        # Last resort: return best greedy result
+        if greedy_scores and greedy_scores[0][0] >= 0:
+            _, _, _, expansion = greedy_scores[0]
+            new_layout = expand_layout(layout, expansion)
+            result = pack_shapes(shape_list, strategy="greedy", layout=new_layout, quiet=True)
+            primary, _ = score_expansion(result, expand_targets)
+            return (expansion, result, primary)
+
+        return None
 
 
 def save_grid_layout(filepath: str, layout: List[List[bool]]):
