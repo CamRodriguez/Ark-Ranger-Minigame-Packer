@@ -673,18 +673,67 @@ def get_expansion_candidates(layout: List[List[bool]], max_width: int = 9, max_h
     return valid
 
 
+def rank_candidates(layout: List[List[bool]], candidates: Set[Coord]) -> List[Coord]:
+    """
+    Rank candidate cells by usefulness: how many shapes (in any rotation)
+    can reach this cell. Cells reachable by more shapes are more valuable
+    for expansion since they enable more packing options.
+    """
+    width = len(layout)
+    height = len(layout[0])
+
+    # Build a temporary expanded layout to test against
+    scores = {}
+    for cx, cy in candidates:
+        score = 0
+        # Count how many shape rotations have at least one valid placement covering this cell
+        for name, rotations in SHAPE_ROTATIONS.items():
+            for rot_shape in rotations:
+                for dx, dy in rot_shape:
+                    ox, oy = cx - dx, cy - dy
+                    # Check if all cells of this placement are either valid grid or candidate cells
+                    valid = True
+                    for sdx, sdy in rot_shape:
+                        sx, sy = ox + sdx, oy + sdy
+                        if sx < 0 or sx >= min(width + 2, 9) or sy < 0 or sy >= min(height + 2, 9):
+                            valid = False
+                            break
+                        if 0 <= sx < width and 0 <= sy < height:
+                            if not layout[sx][sy] and (sx, sy) not in candidates:
+                                valid = False
+                                break
+                        elif (sx, sy) not in candidates:
+                            valid = False
+                            break
+                    if valid:
+                        score += 1
+                        break  # one valid placement per rotation is enough
+        scores[cx, cy] = score
+
+    # Sort by score descending
+    ranked = sorted(candidates, key=lambda c: scores[c], reverse=True)
+    return ranked
+
+
 def generate_connected_expansions(layout: List[List[bool]], num_tiles: int = 6,
                                    max_width: int = 9, max_height: int = 9) -> List[List[Coord]]:
     """
-    Generate all valid groups of num_tiles cells that are each adjacent to the existing grid.
-    Each tile just needs to touch the grid, not necessarily each other.
+    Generate valid groups of num_tiles cells that are each adjacent to the existing grid.
+    If too many candidates, ranks them by usefulness and only uses the top ones.
     """
+    from itertools import combinations
+
     candidates = get_expansion_candidates(layout, max_width, max_height)
     if len(candidates) < num_tiles:
         return []
 
-    # Generate all combinations of num_tiles from candidates
-    from itertools import combinations
+    # If few enough candidates, use all of them
+    MAX_CANDIDATES = 15
+    if len(candidates) > MAX_CANDIDATES:
+        # Rank by usefulness and take top candidates
+        ranked = rank_candidates(layout, candidates)
+        candidates = set(ranked[:MAX_CANDIDATES])
+
     return [list(combo) for combo in combinations(sorted(candidates), num_tiles)]
 
 
